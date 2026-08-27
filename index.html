@@ -1,0 +1,657 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>FFXIV Raid Companion</title>
+<style>
+  :root {
+    --bg: #14151d;
+    --panel: #1e202b;
+    --panel2: #262937;
+    --border: #323648;
+    --text: #d8dae5;
+    --dim: #8a8fa3;
+    --gold: #d4af37;
+    --red: #e05252;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Segoe UI", system-ui, sans-serif;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  header {
+    padding: 8px 14px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    background: var(--panel);
+    font-size: 13px;
+  }
+  header h1 { font-size: 15px; color: var(--gold); letter-spacing: 1px; margin-right: 8px; }
+  .status-item { color: var(--dim); display: flex; align-items: center; gap: 6px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: #555; display: inline-block; }
+  .dot.on { background: #4caf72; }
+  .dot.off { background: var(--red); }
+
+  main {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 320px 1fr 360px;
+    gap: 10px;
+    padding: 10px;
+    min-height: 0;
+  }
+
+  /* While the timer runs, hide the builder so the mechanic image gets full width */
+  body.in-run main { grid-template-columns: 320px 1fr; }
+  body.in-run #builder-panel { display: none; }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  /* ---- Timer panel ---- */
+  #timer-panel { align-items: center; justify-content: center; gap: 14px; padding: 20px; }
+  #time-display {
+    font-family: "Consolas", "Menlo", monospace;
+    font-size: 64px;
+    font-weight: bold;
+    letter-spacing: 2px;
+    color: var(--text);
+    text-shadow: 0 0 18px rgba(212, 175, 55, 0.25);
+  }
+  #time-display.running { color: var(--gold); }
+  #state-label { font-size: 14px; letter-spacing: 3px; text-transform: uppercase; color: var(--dim); }
+  #state-label.running { color: var(--gold); }
+  #next-event { font-size: 13px; color: var(--dim); min-height: 18px; }
+  #hint { font-size: 12px; color: var(--dim); text-align: center; line-height: 1.6; padding-top: 10px; border-top: 1px solid var(--border); width: 100%; }
+  #toggle-btn {
+    background: var(--panel2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 22px;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  #toggle-btn:hover { border-color: var(--gold); color: var(--gold); }
+
+  /* ---- Image panel ---- */
+  #image-panel { align-items: center; justify-content: center; position: relative; overflow: hidden; }
+  #current-image { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 4px; }
+  #no-image { color: var(--dim); font-size: 18px; letter-spacing: 2px; position: absolute; }
+
+  /* ---- Builder panel ---- */
+  #builder-panel { padding: 12px; gap: 10px; }
+  #builder-panel h2 { font-size: 13px; letter-spacing: 2px; text-transform: uppercase; color: var(--gold); }
+  #add-form { display: flex; flex-direction: column; gap: 8px; }
+  .form-row { display: flex; gap: 8px; align-items: center; }
+  input[type="text"], input[type="number"] {
+    background: var(--panel2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 5px;
+    padding: 7px 9px;
+    font-size: 14px;
+    font-family: inherit;
+  }
+  input:focus { outline: none; border-color: var(--gold); }
+  #time-input { width: 110px; }
+  .btn {
+    background: var(--panel2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 7px 14px;
+    font-size: 13px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .btn:hover { border-color: var(--gold); color: var(--gold); }
+  .btn.danger:hover { border-color: var(--red); color: var(--red); }
+  #file-drop {
+    flex: 1;
+    min-height: 42px;
+    border: 1px dashed var(--border);
+    border-radius: 5px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--dim);
+    cursor: pointer;
+    padding: 4px;
+    overflow: hidden;
+  }
+  #file-drop.has-file { border-color: var(--gold); color: var(--text); }
+  #pending-preview { max-height: 36px; max-width: 120px; object-fit: contain; display: none; }
+  #form-error { font-size: 12px; color: var(--red); min-height: 14px; }
+  #entry-list { list-style: none; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 6px; padding-right: 4px; }
+  .entry {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--panel2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 5px 8px;
+  }
+  .entry.active { border-color: var(--gold); box-shadow: 0 0 8px rgba(212, 175, 55, 0.35); }
+  .entry.next { border-color: #4a6fa5; }
+  .entry img { width: 52px; height: 39px; object-fit: cover; border-radius: 3px; cursor: pointer; flex-shrink: 0; }
+  .entry-time { font-family: "Consolas", monospace; font-size: 14px; cursor: pointer; min-width: 62px; color: var(--text); }
+  .entry-time:hover { color: var(--gold); }
+  .entry input { width: 90px !important; padding: 3px 6px !important; font-size: 13px !important; }
+  .entry-del { margin-left: auto; background: none; border: none; color: var(--dim); cursor: pointer; font-size: 15px; padding: 2px 6px; }
+  .entry-del:hover { color: var(--red); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>RAID COMPANION</h1>
+  <span class="status-item"><span id="gp-dot" class="dot"></span><span id="gp-status">gamepad: disconnected</span></span>
+  <span class="status-item"><span id="relay-dot" class="dot"></span><span id="relay-status">relay: off</span></span>
+  <span class="status-item" id="bind-status"></span>
+</header>
+
+<main>
+  <section class="panel" id="timer-panel">
+    <div id="time-display">0:00.0</div>
+    <div id="state-label">Ready</div>
+    <div id="next-event">&nbsp;</div>
+    <button id="toggle-btn" type="button">Start / Reset</button>
+    <div id="hint"></div>
+  </section>
+
+  <section class="panel" id="image-panel">
+    <img id="current-image" alt="" hidden>
+    <div id="no-image">— no active mechanic —</div>
+  </section>
+
+  <aside class="panel" id="builder-panel">
+    <h2>Timeline Builder</h2>
+    <form id="add-form" autocomplete="off">
+      <div class="form-row">
+        <input type="text" id="time-input" placeholder="mm:ss" title="Time, e.g. 1:30 or 90 or 12:05.5">
+        <button class="btn" type="submit">Add</button>
+      </div>
+      <div class="form-row">
+        <div id="file-drop" title="Click, drag an image here, or paste (Ctrl+V)">
+          <img id="pending-preview" alt="">
+          <span id="file-label">click / drop / paste image</span>
+        </div>
+      </div>
+      <input type="file" id="file-input" accept="image/*" hidden>
+      <div id="form-error"></div>
+    </form>
+    <ul id="entry-list"></ul>
+    <button class="btn danger" id="clear-all" type="button">Clear all</button>
+  </aside>
+</main>
+
+<script>
+"use strict";
+
+/* ==========================================================================
+ * CONFIGURATION
+ * ========================================================================== */
+const CONFIG = {
+  // Button index (standard gamepad mapping) that starts/resets the timer.
+  //   8 = Back/Select (Xbox View / PS Select)
+  //   9 = Start/Menu  (Xbox Menu, PS Options — and where the relay script
+  //       forwards the Xbox Guide/Home button on Linux)
+  // Note: the physical Xbox Guide button is usually NOT exposed to browsers
+  // on Windows. On Linux, run gamepad_relay.py which forwards it as slot 9.
+  RESET_BUTTON_INDEX: 16,
+
+  // WebSocket relay for background (unfocused) gamepad input.
+  // Set to "" to disable. gamepad_relay.py listens here by default.
+  RELAY_WS_URL: "ws://127.0.0.1:8765",
+
+  STORAGE_KEY: "ffxiv-raid-companion-v1",
+
+  // Images are downscaled to this width before being stored in localStorage.
+  MAX_IMAGE_WIDTH: 1280,
+};
+
+const BUTTON_NAMES = { 8: "Back/Select (btn 8)", 9: "Start/Guide (btn 9)" };
+
+/* ==========================================================================
+ * STATE
+ * ========================================================================== */
+let entries = loadEntries();          // [{id, ms, image}] sorted by ms
+let running = false;                  // timer state
+let startedAt = 0;                    // performance.now() when started
+let pendingFile = null;               // {dataUrl, name} awaiting a time value
+let previewIdx = -1, previewUntil = 0;// temporary thumbnail preview override
+let lastShownIdx = -2, lastNextIdx = -2;
+
+/* ==========================================================================
+ * PERSISTENCE (localStorage)
+ * ========================================================================== */
+function loadEntries() {
+  try {
+    const raw = localStorage.getItem(CONFIG.STORAGE_KEY);
+    if (!raw) return [];
+    const data = JSON.parse(raw);
+    return Array.isArray(data.entries) ? data.entries : [];
+  } catch (e) { return []; }
+}
+
+function saveEntries() {
+  try {
+    localStorage.setItem(CONFIG.STORAGE_KEY, JSON.stringify({ entries }));
+  } catch (e) {
+    alert("Could not save: browser storage is full. Try fewer or smaller images.");
+  }
+}
+
+/* ==========================================================================
+ * TIME HELPERS
+ * ========================================================================== */
+function fmtTime(ms) {
+  ms = Math.max(0, ms);
+  const h = Math.floor(ms / 3600000);
+  const m = Math.floor((ms % 3600000) / 60000);
+  const s = Math.floor((ms % 60000) / 1000);
+  const d = Math.floor((ms % 1000) / 100);
+  if (h > 0) return h + ":" + String(m).padStart(2, "0") + ":" + String(s).padStart(2, "0");
+  return m + ":" + String(s).padStart(2, "0") + "." + d;
+}
+
+// Accepts "90", "1:30", "1:30.5", "12:05" -> milliseconds (or null)
+function parseTimeToMs(v) {
+  v = String(v).trim();
+  if (!v) return null;
+  const parts = v.split(":");
+  if (parts.length > 3) return null;
+  let ms = 0;
+  for (const p of parts) {
+    if (p === "" || isNaN(parseFloat(p))) return null;
+    ms = ms * 60 + parseFloat(p) * 1000;
+  }
+  return Math.round(ms);
+}
+
+/* ==========================================================================
+ * TIMER
+ * ========================================================================== */
+function elapsedMs() { return running ? performance.now() - startedAt : 0; }
+
+function toggleTimer() {
+  if (running) {
+    // Stop, reset to zero, pause, and clear the displayed timeline image.
+    running = false;
+    previewIdx = -1;
+    lastShownIdx = -2; // force re-render of image + list highlights
+    renderListHighlights(-1, -1);
+    showImage(null);
+    document.body.classList.remove("in-run"); // restore timeline builder
+  } else {
+    running = true;
+    startedAt = performance.now();
+    document.body.classList.add("in-run"); // hide timeline builder for a bigger viewer
+  }
+}
+
+/* ==========================================================================
+ * TIMELINE / IMAGE DISPLAY
+ * ========================================================================== */
+function activeIndex(elapsed) {
+  let idx = -1;
+  for (let i = 0; i < entries.length; i++) {
+    if (entries[i].ms <= elapsed) idx = i; else break;
+  }
+  return idx;
+}
+
+function nextIndex(elapsed) {
+  for (let i = 0; i < entries.length; i++) {
+    if (entries[i].ms > elapsed) return i;
+  }
+  return -1;
+}
+
+const currentImageEl = document.getElementById("current-image");
+const noImageEl = document.getElementById("no-image");
+
+function showImage(entry) {
+  if (entry) {
+    currentImageEl.src = entry.image;
+    currentImageEl.hidden = false;
+    noImageEl.style.display = "none";
+  } else {
+    currentImageEl.hidden = true;
+    currentImageEl.removeAttribute("src");
+    noImageEl.style.display = "";
+  }
+}
+
+function tick() {
+  const elapsed = elapsedMs();
+  const timeEl = document.getElementById("time-display");
+  const stateEl = document.getElementById("state-label");
+  const nextEl = document.getElementById("next-event");
+
+  timeEl.textContent = fmtTime(elapsed);
+  timeEl.classList.toggle("running", running);
+  stateEl.textContent = running ? "Running" : "Ready";
+  stateEl.classList.toggle("running", running);
+
+  // Next upcoming event countdown
+  let idx = -1, nextIdx = -1;
+  if (running) {
+    idx = activeIndex(elapsed);
+    nextIdx = nextIndex(elapsed);
+    if (nextIdx >= 0) {
+      const inMs = entries[nextIdx].ms - elapsed;
+      nextEl.textContent = "Next mechanic at " + fmtTime(entries[nextIdx].ms) + "  (" + fmtTime(inMs) + ")";
+    } else {
+      nextEl.textContent = "\u00a0";
+    }
+  } else {
+    nextEl.textContent = "\u00a0";
+  }
+
+  // Preview override (clicking a thumbnail in the list) — works even while paused
+  let previewActive = false;
+  if (previewIdx >= 0) {
+    if (performance.now() < previewUntil) { idx = previewIdx; previewActive = true; }
+    else { previewIdx = -1; renderListHighlights(-1, -1); }
+  }
+
+  // Reset/paused -> no image shown (unless previewing a thumbnail)
+  const shownIdx = previewActive ? idx : (running ? idx : -1);
+
+  if (shownIdx !== lastShownIdx || nextIdx !== lastNextIdx) {
+    showImage(shownIdx >= 0 ? entries[shownIdx] : null);
+    renderListHighlights(shownIdx, running ? nextIdx : -1);
+    lastShownIdx = shownIdx;
+    lastNextIdx = nextIdx;
+  }
+}
+
+setInterval(tick, 100);
+
+/* ==========================================================================
+ * TIMELINE BUILDER UI
+ * ========================================================================== */
+const entryListEl = document.getElementById("entry-list");
+const timeInput = document.getElementById("time-input");
+const fileInput = document.getElementById("file-input");
+const fileDrop = document.getElementById("file-drop");
+const pendingPreview = document.getElementById("pending-preview");
+const fileLabel = document.getElementById("file-label");
+const formError = document.getElementById("form-error");
+
+function uid() {
+  return (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
+}
+
+function sortEntries() { entries.sort((a, b) => a.ms - b.ms); }
+
+function renderList() {
+  entryListEl.innerHTML = "";
+  for (let i = 0; i < entries.length; i++) {
+    const e = entries[i];
+    const li = document.createElement("li");
+    li.className = "entry";
+    li.dataset.idx = i;
+
+    const img = document.createElement("img");
+    img.src = e.image;
+    img.title = "Click to preview for 3s";
+    img.addEventListener("click", () => {
+      previewIdx = i;
+      previewUntil = performance.now() + 3000;
+    });
+
+    const timeSpan = document.createElement("span");
+    timeSpan.className = "entry-time";
+    timeSpan.textContent = fmtTime(e.ms);
+    timeSpan.title = "Click to edit time";
+    timeSpan.addEventListener("click", () => startEditTime(li, e, timeSpan));
+
+    const del = document.createElement("button");
+    del.className = "entry-del";
+    del.type = "button";
+    del.textContent = "\u2715";
+    del.title = "Delete entry";
+    del.addEventListener("click", () => {
+      entries.splice(entries.indexOf(e), 1);
+      saveEntries();
+      renderList();
+      lastShownIdx = -2; // refresh displayed image if needed
+    });
+
+    li.append(img, timeSpan, del);
+    entryListEl.appendChild(li);
+  }
+}
+
+function startEditTime(li, e, span) {
+  const input = document.createElement("input");
+  input.type = "text";
+  input.value = fmtTime(e.ms).replace(/\.\d$/, "");
+  span.replaceWith(input);
+  input.focus();
+  input.select();
+
+  let done = false;
+  function commit(ok) {
+    if (done) return;
+    done = true;
+    if (ok) {
+      const ms = parseTimeToMs(input.value);
+      if (ms !== null && isFinite(ms)) e.ms = ms;
+    }
+    saveEntries();
+    sortEntries();
+    renderList();
+    lastShownIdx = -2;
+  }
+  input.addEventListener("keydown", ev => {
+    if (ev.key === "Enter") commit(true);
+    else if (ev.key === "Escape") commit(false);
+    ev.stopPropagation(); // don't let Space/other keys toggle the timer
+  });
+  input.addEventListener("blur", () => commit(true));
+}
+
+function renderListHighlights(activeIdx, nextIdx) {
+  for (const li of entryListEl.children) {
+    const i = +li.dataset.idx;
+    li.classList.toggle("active", i === activeIdx);
+    li.classList.toggle("next", i === nextIdx && i !== activeIdx);
+  }
+}
+
+// ---- image intake: click, drag & drop, paste ----
+async function fileToDataUrl(file) {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((res, rej) => {
+      const im = new Image();
+      im.onload = () => res(im);
+      im.onerror = () => rej(new Error("not an image"));
+      im.src = url;
+    });
+    let w = img.naturalWidth, h = img.naturalHeight;
+    if (w > CONFIG.MAX_IMAGE_WIDTH) { h = Math.round(h * CONFIG.MAX_IMAGE_WIDTH / w); w = CONFIG.MAX_IMAGE_WIDTH; }
+    const c = document.createElement("canvas");
+    c.width = w; c.height = h;
+    c.getContext("2d").drawImage(img, 0, 0, w, h);
+    return c.toDataURL("image/jpeg", 0.85);
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+async function setPendingFile(file) {
+  if (!file || !file.type.startsWith("image/")) { formError.textContent = "That is not an image file."; return; }
+  try {
+    const dataUrl = await fileToDataUrl(file);
+    pendingFile = { dataUrl, name: file.name || "pasted image" };
+    pendingPreview.src = dataUrl;
+    pendingPreview.style.display = "";
+    fileLabel.textContent = file.name || "pasted image";
+    fileDrop.classList.add("has-file");
+    formError.textContent = "";
+  } catch (e) {
+    formError.textContent = "Could not read that image.";
+  }
+}
+
+function clearPendingFile() {
+  pendingFile = null;
+  pendingPreview.style.display = "none";
+  fileLabel.textContent = "click / drop / paste image";
+  fileDrop.classList.remove("has-file");
+  fileInput.value = "";
+}
+
+fileDrop.addEventListener("click", () => fileInput.click());
+fileInput.addEventListener("change", () => setPendingFile(fileInput.files[0]));
+fileDrop.addEventListener("dragover", e => { e.preventDefault(); });
+fileDrop.addEventListener("drop", e => {
+  e.preventDefault();
+  if (e.dataTransfer.files.length) setPendingFile(e.dataTransfer.files[0]);
+});
+document.addEventListener("paste", e => {
+  for (const item of e.clipboardData.items) {
+    if (item.type.startsWith("image/")) { setPendingFile(item.getAsFile()); break; }
+  }
+});
+
+document.getElementById("add-form").addEventListener("submit", async e => {
+  e.preventDefault();
+  formError.textContent = "";
+  const ms = parseTimeToMs(timeInput.value);
+  if (ms === null || !isFinite(ms) || ms < 0) { formError.textContent = "Enter a time, e.g. 1:30"; return; }
+  if (!pendingFile) { formError.textContent = "Add an image first (click / drop / paste)."; return; }
+  entries.push({ id: uid(), ms, image: pendingFile.dataUrl });
+  sortEntries();
+  saveEntries();
+  renderList();
+  clearPendingFile();
+  timeInput.value = "";
+});
+
+document.getElementById("clear-all").addEventListener("click", () => {
+  if (!entries.length) return;
+  if (confirm("Delete all timeline entries?")) {
+    entries = [];
+    saveEntries();
+    renderList();
+    lastShownIdx = -2;
+  }
+});
+
+/* ==========================================================================
+ * GAMEPAD INPUT
+ * Browsers only deliver gamepad input to the focused window/tab. Two paths:
+ *   1) Native polling below (works while this window is focused).
+ *   2) WebSocket relay (gamepad_relay.py) — works even when FFXIV has focus.
+ * ========================================================================== */
+
+function press(buttonIndex) {
+  if (buttonIndex === CONFIG.RESET_BUTTON_INDEX) toggleTimer();
+}
+
+// ---- native polling with edge detection ----
+let lastNativePressed = false;
+let interacted = false; // browsers gate getGamepads() behind a user gesture
+addEventListener("click", () => interacted = true, { once: false });
+addEventListener("keydown", () => interacted = true, { once: false });
+
+function pollGamepad() {
+  if (relayRecentlyActive()) return; // relay is authoritative to avoid double-firing
+  let connected = false;
+  try {
+    for (const gp of navigator.getGamepads ? navigator.getGamepads() : []) {
+      if (!gp || !gp.connected) continue;
+      connected = true;
+      const b = gp.buttons[CONFIG.RESET_BUTTON_INDEX];
+      const p = !!(b && b.pressed);
+      if (interacted && p && !lastNativePressed) press(CONFIG.RESET_BUTTON_INDEX);
+      lastNativePressed = p;
+    }
+  } catch (e) { /* getGamepads unavailable */ }
+  updateGpStatus(connected);
+}
+setInterval(pollGamepad, 50);
+
+// ---- mouse / keyboard fallbacks (when page is focused) ----
+document.getElementById("toggle-btn").addEventListener("click", toggleTimer);
+addEventListener("keydown", e => {
+  const t = document.activeElement;
+  if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA")) return;
+  if (e.code === "Space") { e.preventDefault(); toggleTimer(); }
+});
+
+let gpStatusShown = null;
+function updateGpStatus(connected) {
+  const key = connected ? "on" : "off";
+  if (key === gpStatusShown) return;
+  gpStatusShown = key;
+  document.getElementById("gp-dot").className = "dot " + (connected ? "on" : "off");
+  document.getElementById("gp-status").textContent = "gamepad: " + (connected ? "connected" : "disconnected");
+}
+
+/* ---- WebSocket relay client ---- */
+let ws = null, relayLastMsgAt = 0;
+function relayRecentlyActive() { return Date.now() - relayLastMsgAt < 1500; }
+
+let relayStatusShown = "";
+function setRelayState(state) { // "connected" | "offline" | "disabled"
+  if (state === relayStatusShown) return;
+  relayStatusShown = state;
+  const dot = document.getElementById("relay-dot");
+  const label = document.getElementById("relay-status");
+  dot.className = "dot " + (state === "connected" ? "on" : state === "offline" ? "off" : "");
+  label.textContent = "relay: " + state;
+}
+
+function connectRelay() {
+  if (!CONFIG.RELAY_WS_URL) { setRelayState("disabled"); return; }
+  try { ws = new WebSocket(CONFIG.RELAY_WS_URL); } catch (e) { scheduleRelayReconnect(); return; }
+  ws.onopen = () => setRelayState("connected");
+  ws.onmessage = e => {
+    try {
+      const m = JSON.parse(e.data);
+      relayLastMsgAt = Date.now(); // any traffic marks the relay as authoritative
+      if (m.pressed && typeof m.button === "number") press(m.button);
+    } catch (err) { /* ignore malformed frames */ }
+  };
+  ws.onclose = () => { setRelayState("offline"); scheduleRelayReconnect(); };
+  ws.onerror = () => { try { ws.close(); } catch (e) {} };
+}
+function scheduleRelayReconnect() { setTimeout(connectRelay, 2000); }
+
+/* ==========================================================================
+ * INIT
+ * ========================================================================== */
+document.getElementById("bind-status").textContent = "reset button: " + (BUTTON_NAMES[CONFIG.RESET_BUTTON_INDEX] || "btn " + CONFIG.RESET_BUTTON_INDEX);
+document.getElementById("hint").innerHTML =
+  "Press <b>" + (BUTTON_NAMES[CONFIG.RESET_BUTTON_INDEX] || ("btn " + CONFIG.RESET_BUTTON_INDEX)) + "</b> to start, press again to reset.<br>" +
+  "Click a timeline thumbnail to preview it. Click its time to edit.";
+sortEntries();
+renderList();
+tick();
+connectRelay();
+</script>
+</body>
+</html>
