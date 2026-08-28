@@ -177,7 +177,6 @@
 <header>
   <h1>RAID COMPANION</h1>
   <span class="status-item"><span id="gp-dot" class="dot"></span><span id="gp-status">gamepad: disconnected</span></span>
-  <span class="status-item"><span id="relay-dot" class="dot"></span><span id="relay-status">relay: off</span></span>
   <span class="status-item" id="bind-status"></span>
 </header>
 
@@ -268,12 +267,8 @@ const CONFIG = {
   //   double press -> reset the timer
   // Common values: 8 = Back/Select, 9 = Start/Menu. On this Linux setup the
   // Xbox Guide/Home button is exposed as index 16; on Windows it is usually
-  // not visible to browsers at all (use gamepad_relay.py instead).
+  // not visible to browsers at all — pick another button there if needed.
   RESET_BUTTON_INDEX: 16,
-
-  // WebSocket relay for background (unfocused) gamepad input.
-  // Set to "" to disable. gamepad_relay.py listens here by default.
-  RELAY_WS_URL: "ws://127.0.0.1:8765",
 
   // Two presses of the control button within this window = reset timer.
   // A single press triggers the mechanic tracker (and starts a stopped timer).
@@ -851,10 +846,8 @@ document.addEventListener("drop", async e => {
 });
 
 /* ==========================================================================
- * GAMEPAD INPUT
- * Browsers only deliver gamepad input to the focused window/tab. Two paths:
- *   1) Native polling below (works while this window is focused).
- *   2) WebSocket relay (gamepad_relay.py) — works even when FFXIV has focus.
+ * GAMEPAD INPUT (native polling; browsers deliver gamepad input to the
+ * focused window/tab only, so keep this tab visible while raiding)
  *
  * Control button semantics: a single press triggers the mechanic tracker and
  * starts a stopped timer; two presses within CONFIG.DOUBLE_PRESS_MS reset it.
@@ -888,7 +881,6 @@ addEventListener("click", () => interacted = true, { once: false });
 addEventListener("keydown", () => interacted = true, { once: false });
 
 function pollGamepad() {
-  if (relayRecentlyActive()) return; // relay is authoritative to avoid double-firing
   let connected = false;
   try {
     const pads = navigator.getGamepads ? Array.from(navigator.getGamepads()) : [];
@@ -924,36 +916,6 @@ function updateGpStatus(connected) {
   document.getElementById("gp-status").textContent = "gamepad: " + (connected ? "connected" : "disconnected");
 }
 
-/* ---- WebSocket relay client ---- */
-let ws = null, relayLastMsgAt = 0;
-function relayRecentlyActive() { return Date.now() - relayLastMsgAt < 1500; }
-
-let relayStatusShown = "";
-function setRelayState(state) { // "connected" | "offline" | "disabled"
-  if (state === relayStatusShown) return;
-  relayStatusShown = state;
-  const dot = document.getElementById("relay-dot");
-  const label = document.getElementById("relay-status");
-  dot.className = "dot " + (state === "connected" ? "on" : state === "offline" ? "off" : "");
-  label.textContent = "relay: " + state;
-}
-
-function connectRelay() {
-  if (!CONFIG.RELAY_WS_URL) { setRelayState("disabled"); return; }
-  try { ws = new WebSocket(CONFIG.RELAY_WS_URL); } catch (e) { scheduleRelayReconnect(); return; }
-  ws.onopen = () => setRelayState("connected");
-  ws.onmessage = e => {
-    try {
-      const m = JSON.parse(e.data);
-      relayLastMsgAt = Date.now(); // any traffic marks the relay as authoritative
-      if (m.pressed && typeof m.button === "number") registerButtonEdge(m.button, true);
-    } catch (err) { /* ignore malformed frames */ }
-  };
-  ws.onclose = () => { setRelayState("offline"); scheduleRelayReconnect(); };
-  ws.onerror = () => { try { ws.close(); } catch (e) {} };
-}
-function scheduleRelayReconnect() { setTimeout(connectRelay, 2000); }
-
 /* ==========================================================================
  * INIT
  * ========================================================================== */
@@ -967,7 +929,6 @@ renderList();
 if (savedScript) installLuaScript(savedScript); // persisted tracker script; any error shows in the status line
 else updateTrackerStatus();
 tick();
-connectRelay();
 </script>
 </body>
 </html>
