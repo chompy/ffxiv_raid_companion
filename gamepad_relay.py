@@ -6,7 +6,8 @@ Browsers only deliver gamepad input to a focused window, so this script reads
 your controller straight from /dev/input and forwards button presses to the
 web app over a small WebSocket server. Run it while playing:
 
-    python3 gamepad_relay.py          # then open index.html normally
+    python3 gamepad_relay.py                     # then open index.html normally
+    python3 gamepad_relay.py --guide-button 9    # if the app expects slot 9
 
 No third-party packages required (Python 3 standard library only). The web app
 auto-connects and retries, so you can start/stop this script at any time.
@@ -34,10 +35,16 @@ WEB_PORT = 8765
 
 # evdev key code -> standard gamepad button index sent to the web app.
 # XInput (Xbox) controllers on Linux report the Guide/Home button as
-# KEY_MICMUTE (113). The web app's default reset button is slot 9, so this
-# makes "press Home in-game" behave exactly like pressing Start/Menu.
+# KEY_MICMUTE (113). The value must match the app's CONFIG.RESET_BUTTON_INDEX
+# (slot 16 in this setup), otherwise relayed presses are not treated as the
+# control button. Override with: python3 gamepad_relay.py --guide-button N
+GUIDE_BUTTON = 16
+for _i, _arg in enumerate(sys.argv[1:], start=1):
+    if _arg == "--guide-button" and _i + 1 < len(sys.argv):
+        GUIDE_BUTTON = int(sys.argv[_i + 1])
+
 KEY_TO_BUTTON = {
-    113: 9,   # KEY_MICMUTE -> Xbox Guide/Home
+    113: GUIDE_BUTTON,   # KEY_MICMUTE -> Xbox Guide/Home
 }
 
 # Only watch devices whose name contains one of these substrings (case-
