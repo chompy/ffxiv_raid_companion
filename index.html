@@ -367,6 +367,7 @@ function resetTimer() {
   renderListHighlights(-1, -1);
   showImage(null);
   clearTrackerLines();
+  resetLua();
   document.body.classList.remove("in-run"); // restore timeline builder
 }
 
@@ -389,6 +390,7 @@ function toggleTimer() { if (running) resetTimer(); else startTimer(); }
 const F = window.fengari; // bundled Lua 5.3 (fengari) — its <script> tag sits above this one
 let luaL = null;          // active Lua state, nil until a script is installed
 let onFrameRef = -1;      // registry reference to the user's onFrame function
+let onResetRef = -1;      // registry reference to the user's onReset function
 let luaReady = false;     // true once install succeeded and onFrame exists
 let luaError = "";        // last error message, shown in the status line
 
@@ -468,6 +470,15 @@ function installLuaScript(src) {
   onFrameRef = ref;
   luaReady = true;
   luaError = "";
+
+  const treset = F.lua.lua_getglobal(L, "onReset");
+  if (treset == F.lua.LUA_TFUNCTION) {
+    onResetRef = F.lauxlib.luaL_ref(L, F.lua.LUA_REGISTRYINDEX); // pops the value onto the registry
+  } else {
+    F.lua.lua_pop(L, 1);
+  }
+
+
   updateTrackerStatus();
   return null;
 }
@@ -484,6 +495,20 @@ function tickLua(seconds, gamepadInput) {
     luaError = "onFrame: " + luaPopError(L, "script failed");
     luaReady = false; // halt until a new script is dropped in
     updateTrackerStatus();
+  }
+}
+
+function resetLua() {
+  if (!luaReady || !luaL) return;
+  const L = luaL;
+  if (onResetRef != -1) {
+    F.lua.lua_rawgeti(L, F.lua.LUA_REGISTRYINDEX, onResetRef); // push onReset
+    const rc = F.lua.lua_pcall(L, 0, 0, 0);
+    if (rc !== F.lua.LUA_OK) {
+      luaError = "onReset: " + luaPopError(L, "script failed");
+      luaReady = false; // halt until a new script is dropped in
+      updateTrackerStatus();
+    }
   }
 }
 
@@ -861,7 +886,7 @@ let lastCtrlPressAt = null; // performance.now() of the previous control-button 
 function onControlButtonPress() {
   const now = performance.now();
   if (lastCtrlPressAt !== null && now - lastCtrlPressAt < CONFIG.DOUBLE_PRESS_MS) {
-    resetTimer(); // double press -> stop and reset; keeping the timestamp makes a rapid third tap another no-op reset
+    resetTimer();
   } else {
     lastCtrlPressAt = now;
     if (!running) startTimer(); // single press on a stopped timer starts it; while running, just the trigger pulse below

@@ -8,15 +8,7 @@ local phases = {
     { 300, "Phase 2 - enrage race" },
 }
 
-local lastT = -1
-
 function onFrame(t)
-    if t < lastT then            -- timer was reset: wipe stale lines for a clean start
-        setLine(3, "")
-        setLine(4, "")
-    end
-    lastT = t
-
     local cur = phases[1]
     for i = 2, #phases do
         if phases[i][1] <= t then cur = phases[i] end

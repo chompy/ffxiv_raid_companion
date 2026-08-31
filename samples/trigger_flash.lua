@@ -1,16 +1,13 @@
--- Trigger flash: every Guide press lights up a big "MECHANIC" line for 3
--- seconds and counts presses since the last timer reset.
+-- Trigger flash: every Guide press lights up a big "MECHANIC" line for 3 seconds.
 local presses = 0
 local flashUntil = -1
-local lastT = -1
+
+function onReset()
+    presses = 0
+    flashUntil = -1
+end
 
 function onFrame(t, input)
-    if t < lastT then            -- time went backwards -> the timer was reset: fresh start
-        presses = 0
-        flashUntil = -1
-    end
-    lastT = t
-
     if input then                -- Guide button was pressed since the last call
         presses = presses + 1
         flashUntil = t + 3
