@@ -7,8 +7,9 @@ function onReset()
     flashUntil = -1
 end
 
-function onFrame(t, input)
-    if input then                -- Guide button was pressed since the last call
+function onFrame()
+    local t = getTime()
+    if hasControlInput() then        -- Guide button was pressed since the last call
         presses = presses + 1
         flashUntil = t + 3
         setLine(2, "trigger #" .. presses)

@@ -378,9 +378,11 @@ function toggleTimer() { if (running) resetTimer(); else startTimer(); }
  * MECHANIC TRACKER (Lua scripts)
  * Drop a .lua file anywhere in this window to load a script. Contract:
  *   - Top-level code runs once at load time (setup).
- *   - Must define global function onFrame(time, gamepadInput):
- *       time         current raid timer in seconds (float)
- *       gamepadInput true if the Guide/control button was pressed since last call
+ *   - Must define global function onFrame() — called ~10x/sec while running.
+ *       getTime()           current raid timer in seconds (float)
+ *       hasControlInput()   true only on the frame where a Guide/control
+ *                           button press was detected since the last call
+ *   - Optional global function onReset() — called when the timer is reset.
  *   - Call setLine(i, text) to update line i (1..CONFIG.TRACKER_LINES),
  *     or clearLines() to wipe every line.
  * A script error halts it and is shown in the status line; drop a new .lua
@@ -393,6 +395,7 @@ let onFrameRef = -1;      // registry reference to the user's onFrame function
 let onResetRef = -1;      // registry reference to the user's onReset function
 let luaReady = false;     // true once install succeeded and onFrame exists
 let luaError = "";        // last error message, shown in the status line
+let luaHadInput = false;  // control-button press seen during the current tick (hasControlInput)
 
 const trackerStatusEl = document.getElementById("tracker-status");
 const trackerLinesEl = document.getElementById("tracker-lines");
@@ -449,6 +452,16 @@ function installLuaScript(src) {
   F.lua.lua_setglobal(L, "setLine");
   F.lua.lua_pushcfunction(L, () => { clearTrackerLines(); return 0; });
   F.lua.lua_setglobal(L, "clearLines");
+  F.lua.lua_pushcfunction(L, (L2) => {
+    F.lua.lua_pushnumber(L2, elapsedMs() / 1000);
+    return 1;
+  });
+  F.lua.lua_setglobal(L, "getTime");
+  F.lua.lua_pushcfunction(L, (L2) => {
+    F.lua.lua_pushboolean(L2, luaHadInput ? 1 : 0);
+    return 1;
+  });
+  F.lua.lua_setglobal(L, "hasControlInput");
 
   const st = F.lauxlib.luaL_loadstring(L, F.to_luastring(src));
   if (st !== F.lua.LUA_OK) {
@@ -462,7 +475,7 @@ function installLuaScript(src) {
   const t = F.lua.lua_getglobal(L, "onFrame");
   if (t !== F.lua.LUA_TFUNCTION) {
     F.lua.lua_pop(L, 1);
-    return "script must define global function onFrame(time, gamepadInput)";
+    return "script must define global function onFrame()";
   }
   // All good — swap the new state in atomically.
   const ref = F.lauxlib.luaL_ref(L, F.lua.LUA_REGISTRYINDEX); // pops the value onto the registry
@@ -483,14 +496,13 @@ function installLuaScript(src) {
   return null;
 }
 
-// Called from tick() ~10x/sec while the timer runs.
-function tickLua(seconds, gamepadInput) {
+// Called from tick() ~10x/sec while the timer runs. The script queries
+// getTime() and hasControlInput() instead of receiving them as arguments.
+function tickLua() {
   if (!luaReady || !luaL) return;
   const L = luaL;
   F.lua.lua_rawgeti(L, F.lua.LUA_REGISTRYINDEX, onFrameRef); // push onFrame
-  F.lua.lua_pushnumber(L, seconds);
-  F.lua.lua_pushboolean(L, gamepadInput ? 1 : 0);
-  const rc = F.lua.lua_pcall(L, 2, 0, 0);
+  const rc = F.lua.lua_pcall(L, 0, 0, 0);
   if (rc !== F.lua.LUA_OK) {
     luaError = "onFrame: " + luaPopError(L, "script failed");
     luaReady = false; // halt until a new script is dropped in
@@ -601,10 +613,11 @@ function tick() {
   }
 
   // Feed the mechanic tracker script (~10x/sec while running). A Guide/control
-  // button press since the last tick is reported as gamepadInput = true.
+  // button press since the last tick is visible to the script via hasControlInput().
   const hadInput = inputPulse;
   inputPulse = false;
-  if (running && luaReady) tickLua(elapsed / 1000, hadInput);
+  luaHadInput = hadInput;
+  if (running && luaReady) tickLua();
 }
 
 setInterval(tick, 100);
@@ -880,7 +893,7 @@ document.addEventListener("drop", async e => {
  * FFXIV itself, so polling ignores them entirely.
  * ========================================================================== */
 
-let inputPulse = false; // control-button press since the last tick -> Lua's gamepadInput
+let inputPulse = false; // control-button press since the last tick -> Lua hasControlInput()
 let lastCtrlPressAt = null; // performance.now() of the previous control-button press (null until first press)
 
 function onControlButtonPress() {

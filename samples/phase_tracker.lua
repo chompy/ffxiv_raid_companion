@@ -8,7 +8,8 @@ local phases = {
     { 300, "Phase 2 - enrage race" },
 }
 
-function onFrame(t)
+function onFrame()
+    local t = getTime()
     local cur = phases[1]
     for i = 2, #phases do
         if phases[i][1] <= t then cur = phases[i] end
