@@ -15,7 +15,7 @@ A single-file companion for raid pulls. Open `index.html` in any modern browser 
 | Single press | Triggers the mechanic tracker (visible to scripts via `hasControlInput()`), starts a stopped timer |
 | Double press (< 0.4 s) | Stops and resets the timer; clears the timeline image and tracker lines |
 
-Only the control button is listened to — every other controller button belongs to FFXIV and is ignored, so in-game inputs can never trigger the app. Browsers only deliver gamepad input while this tab has focus, so keep it visible (e.g. on a second monitor) during pulls. Mouse/keyboard fallback: the Start/Reset button or Space bar toggles the timer.
+Only the control button is listened to — every other controller button belongs to FFXIV and can never trigger the app, though your script *can read* them (and the analog sticks) via `hasButtonInput()` / `getStickInput()`. Browsers only deliver gamepad input while this tab has focus, so keep it visible (e.g. on a second monitor) during pulls. Mouse/keyboard fallback: the Start/Reset button or Space bar toggles the timer.
 
 **Timeline builder:** click/drop/paste an image, type its time (`1:30`, `90`, `12:05` all work), press Add. Click a thumbnail to preview it; click its time to edit. **Export** downloads the whole timeline as `.json`; dropping that file back onto the window replaces the current timeline.
 
@@ -56,6 +56,8 @@ Available functions your script can call:
 | `clearLines()` | Wipe all lines. |
 | `getTime()` | Current raid timer in seconds (float, e.g. `83.45`). Returns 0 while stopped. |
 | `hasControlInput()` | True only on the frame where a Guide press was detected since the last call — check it inside `onFrame()`. |
+| `hasButtonInput(index)` | True only on the frame where gamepad button `index` was pressed since the last call (rising edge, same lifetime as `hasControlInput()`). Works for any standard button index; out-of-range is always false. Other buttons never affect the app — they're read-only data for your script. |
+| `getStickInput(index)` | Returns two values: `local x, y = getStickInput(0)` for the left stick, `getStickInput(1)` for the right. Each axis is in -1…1 (centered = 0). Invalid index returns nils. Reads the first connected gamepad. |
 | `print(...)` | Works — writes to the browser's devtools console, handy for debugging (not shown in the app UI). |
 
 **Lua environment:** a full Lua 5.3 core runs inside the page — `string`, `table`, `math`, `bit32`, `utf8`, `coroutine`, and most of `os` (`os.time`, `os.date`, `os.difftime`, `os.clock`). What does *not* exist in a browser: file I/O (`io.open`, …), `require`/`loadfile`, and the process-related `os.*` functions (`exit`, `getenv`, `execute`, …). Stick to pure computation plus the two display functions above.

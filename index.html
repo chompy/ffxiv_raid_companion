@@ -382,6 +382,9 @@ function toggleTimer() { if (running) resetTimer(); else startTimer(); }
  *       getTime()           current raid timer in seconds (float)
  *       hasControlInput()   true only on the frame where a Guide/control
  *                           button press was detected since the last call
+ *       hasButtonInput(i)  true only on the frame where gamepad button i was
+ *                          pressed since the last call
+ *       getStickInput(i)   returns x, y of stick i (0 = left, 1 = right), -1..1
  *   - Optional global function onReset() — called when the timer is reset.
  *   - Call setLine(i, text) to update line i (1..CONFIG.TRACKER_LINES),
  *     or clearLines() to wipe every line.
@@ -462,6 +465,23 @@ function installLuaScript(src) {
     return 1;
   });
   F.lua.lua_setglobal(L, "hasControlInput");
+  F.lua.lua_pushcfunction(L, (L2) => {
+    const idx = F.lua.lua_tointeger(L2, 1);
+    F.lua.lua_pushboolean(L2, idx !== null && luaButtonEdges.has(idx) ? 1 : 0);
+    return 1;
+  });
+  F.lua.lua_setglobal(L, "hasButtonInput");
+  // Returns two values: x, y of stick index (0 = left, 1 = right), each in -1..1.
+  F.lua.lua_pushcfunction(L, (L2) => {
+    const idx = F.lua.lua_tointeger(L2, 1);
+    if (idx === 0 || idx === 1) {
+      F.lua.lua_pushnumber(L2, gpAxes[idx * 2]);
+      F.lua.lua_pushnumber(L2, gpAxes[idx * 2 + 1]);
+      return 2;
+    }
+    return 0; // invalid stick index -> (nil, nil)
+  });
+  F.lua.lua_setglobal(L, "getStickInput");
 
   const st = F.lauxlib.luaL_loadstring(L, F.to_luastring(src));
   if (st !== F.lua.LUA_OK) {
@@ -617,6 +637,10 @@ function tick() {
   const hadInput = inputPulse;
   inputPulse = false;
   luaHadInput = hadInput;
+  // Snapshot button-edge pulses for hasButtonInput(), then clear them so a press
+  // is only ever visible on one tick — same lifetime as hasControlInput().
+  luaButtonEdges = new Set(gpEdgeButtons);
+  gpEdgeButtons.clear();
   if (running && luaReady) tickLua();
 }
 
@@ -894,6 +918,9 @@ document.addEventListener("drop", async e => {
  * ========================================================================== */
 
 let inputPulse = false; // control-button press since the last tick -> Lua hasControlInput()
+const gpEdgeButtons = new Set(); // rising edges on ANY button since the last tick -> Lua hasButtonInput(i)
+let luaButtonEdges = new Set();  // snapshot of the above, visible to scripts during the current tick
+const gpAxes = [0, 0, 0, 0];     // first connected pad's axes (LX LY RX RY) -> Lua getStickInput(i)
 let lastCtrlPressAt = null; // performance.now() of the previous control-button press (null until first press)
 
 function onControlButtonPress() {
@@ -912,25 +939,37 @@ function registerButtonEdge(buttonIndex, pressed) {
   if (pressed) onControlButtonPress();
 }
 
-// ---- native polling with edge detection on the control button only ----
-const gpPrevStates = new Map(); // gamepad index -> last seen state of the control button
+// ---- native polling: rising-edge detection on every button; only the control
+//      button drives app behavior, all buttons + axes are data for Lua scripts ----
+const gpPrevStates = new Map(); // gamepad index -> last seen pressed states (array)
 let interacted = false; // browsers gate getGamepads() behind a user gesture
 addEventListener("click", () => interacted = true, { once: false });
 addEventListener("keydown", () => interacted = true, { once: false });
 
 function pollGamepad() {
   let connected = false;
+  let snapshotTaken = false;
   try {
     const pads = navigator.getGamepads ? Array.from(navigator.getGamepads()) : [];
     for (let gi = 0; gi < pads.length; gi++) {
       const gp = pads[gi];
       if (!gp || !gp.connected) continue;
       connected = true;
-      const b = gp.buttons[CONFIG.RESET_BUTTON_INDEX];
-      const p = !!(b && b.pressed);
-      // rising edge only: a held button must not re-trigger the tracker every tick
-      if (interacted && p && !gpPrevStates.get(gi)) registerButtonEdge(CONFIG.RESET_BUTTON_INDEX, true);
-      gpPrevStates.set(gi, p);
+      // rising edges only: a held button must not re-trigger anything every poll
+      const prev = gpPrevStates.get(gi) || [];
+      for (let bi = 0; bi < gp.buttons.length; bi++) {
+        const p = !!(gp.buttons[bi] && gp.buttons[bi].pressed);
+        if (interacted && p && !prev[bi]) {
+          gpEdgeButtons.add(bi); // visible to tracker scripts via hasButtonInput(bi)
+          registerButtonEdge(bi, true); // only the control button acts on this
+        }
+        prev[bi] = p;
+      }
+      gpPrevStates.set(gi, prev);
+      if (!snapshotTaken) { // first connected pad is what Lua scripts read via getStickInput()
+        snapshotTaken = true;
+        for (let ai = 0; ai < gpAxes.length && ai < gp.axes.length; ai++) gpAxes[ai] = gp.axes[ai] || 0;
+      }
     }
   } catch (e) { /* getGamepads unavailable */ }
   updateGpStatus(connected);
