@@ -1,0 +1,19 @@
+{
+  "name": "ffxiv-raid-viewer",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Web viewer for FFXIV combat data sourced from the IINACT websocket server.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "node test/combat-timer.test.mjs && node test/lua-engine.test.mjs && node test/limit-cut.test.mjs && node test/dmu-debuffs.test.mjs && node test/replay-check.mjs"
+  },
+  "devDependencies": {
+    "vite": "^6.0.0"
+  },
+  "dependencies": {
+    "fengari": "^0.1.5"
+  }
+}
