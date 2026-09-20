@@ -160,11 +160,17 @@ export class LuaManager {
     try {
       const script = new LuaScript(name, code, this._getCanvasSize);
       const id = this._nextId++;
-      this._scripts.push({ id, script });
+      this._scripts.push({ id, script, enabled: true });
       return { ok: true, id };
     } catch (err) {
       return { ok: false, error: err.message };
     }
+  }
+
+  /** Disabled scripts receive no callbacks and contribute no scene. */
+  setEnabled(id, enabled) {
+    const entry = this._scripts.find((s) => s.id === id);
+    if (entry) entry.enabled = Boolean(enabled);
   }
 
   remove(id) {
@@ -183,33 +189,35 @@ export class LuaManager {
     return this._scripts.length;
   }
 
-  /** @returns {{id:number,name:string,lastError:(string|null)}[]} */
+  /** @returns {{id:number,name:string,enabled:boolean,lastError:(string|null)}[]} */
   scripts() {
-    return this._scripts.map(({ id, script }) => ({ id, name: script.name, lastError: script.lastError }));
+    return this._scripts.map(({ id, script, enabled }) => ({
+      id, name: script.name, enabled, lastError: script.lastError,
+    }));
   }
 
-  /** Scenes in load order for the renderer to replay. */
+  /** Scenes of the enabled scripts, in load order, for the renderer to replay. */
   scenes() {
-    return this._scripts.map(({ script }) => ({ name: script.name, scene: script.scene }));
+    return this._scripts.filter(({ enabled }) => enabled).map(({ script }) => ({ name: script.name, scene: script.scene }));
   }
 
   onLogLine(raw) {
-    for (const { script } of this._scripts) script._call('onLogLine', [raw]);
+    for (const { script, enabled } of this._scripts) if (enabled) script._call('onLogLine', [raw]);
   }
 
   onChangeZone(zoneName) {
-    for (const { script } of this._scripts) script._call('onChangeZone', [zoneName]);
+    for (const { script, enabled } of this._scripts) if (enabled) script._call('onChangeZone', [zoneName]);
   }
 
   onCombatStart() {
-    for (const { script } of this._scripts) script._call('onCombatStart', []);
+    for (const { script, enabled } of this._scripts) if (enabled) script._call('onCombatStart', []);
   }
 
   onCombatEnd(result, elapsedMs) {
-    for (const { script } of this._scripts) script._call('onCombatEnd', [result, elapsedMs]);
+    for (const { script, enabled } of this._scripts) if (enabled) script._call('onCombatEnd', [result, elapsedMs]);
   }
 
   frame(dtSeconds) {
-    for (const { script } of this._scripts) script._call('onFrame', [dtSeconds]);
+    for (const { script, enabled } of this._scripts) if (enabled) script._call('onFrame', [dtSeconds]);
   }
 }

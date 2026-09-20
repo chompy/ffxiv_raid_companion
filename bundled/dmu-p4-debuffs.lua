@@ -176,17 +176,16 @@ local function parseDebuff(raw)
   if not info and not personalInfo then return end
   lastActivityMs = nowMs() -- applies AND removals keep the table up until it resolves
 
-  -- line 26 apply: target at f[8]/f[9]. line 30 remove: target at f[6]/f[7].
-  local targetId, targetName
-  if f[1] == "26" then
-    targetId, targetName = f[8], f[9]
-  else
-    targetId, targetName = f[6], f[7]
-  end
+  -- Both line 26 apply and line 30 remove carry the target at f[8]/f[9].
+  local targetId, targetName = f[8], f[9]
 
   if f[1] == "30" then
-    mine[status] = nil
-    personal[status] = nil
+    -- Only clear markers for YOUR removal: other players' copies of the same
+    -- status expire on their own schedule.
+    if isMe(targetId, targetName) then
+      mine[status] = nil
+      personal[status] = nil
+    end
     return
   end
 
@@ -197,7 +196,12 @@ local function parseDebuff(raw)
     -- Global: any player's apply line informs the table (latest round wins).
     local mechKey = type(info.mech) == "function" and info.mech(dur) or info.mech
     local r, p = tellReality(info.boss, appliedAtMs)
-    mechs[mechKey] = { reality=r, tellParam=p, atMs=appliedAtMs }
+    -- Never downgrade an already-resolved round to unknown: applies can land
+    -- after the boss's tell has lifted, but the cast may have stamped it while
+    -- the tell was still fresh.
+    if r or not mechs[mechKey] then
+      mechs[mechKey] = { reality=r, tellParam=p, atMs=appliedAtMs }
+    end
     if isMe(targetId, targetName) then
       mine[status] = { durationS=dur, appliedAtMs=appliedAtMs }
     end

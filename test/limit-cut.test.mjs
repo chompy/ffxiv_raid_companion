@@ -1,4 +1,4 @@
-// Tests for examples/limit-cut.lua using real NetworkAbility lines from a Kefka session.
+// Tests for bundled/limit-cut.lua using real NetworkAbility lines from a Kefka session.
 import { strict as assert } from 'node:assert';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -6,7 +6,7 @@ import path from 'node:path';
 import { LuaManager } from '../src/luaEngine.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const code = readFileSync(path.join(here, '..', 'examples', 'limit-cut.lua'), 'utf8');
+const code = readFileSync(path.join(here, '..', 'bundled', 'limit-cut.lua'), 'utf8');
 
 // Real "Ultima Blaster" clone casts (action BAE4) from logs/Network_30300_20260914.log.
 // These lines carry NO movement events, so the tracker falls back to the caster pair
@@ -137,7 +137,7 @@ assert.ok(early.includes('waiting for second clone...'));
 function replayLog(logName) {
   const m = new LuaManager(() => [1280, 720]);
   assert.equal(m.add('limit-cut.lua', code).ok, true);
-  for (const line of readFileSync(path.join(here, '..', 'logs', logName), 'utf8').split('\n')) {
+  for (const line of readFileSync(path.join(here, 'fixtures', logName), 'utf8').split('\n')) {
     if (line) m.onLogLine(line);
   }
   m.frame(1 / 60);

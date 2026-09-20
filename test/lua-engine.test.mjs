@@ -87,6 +87,33 @@ assert.ok(!mgr.scenes().some((s) => s.name === 'draw.lua'));
 mgr.clear();
 assert.equal(mgr.size, 0);
 
+// --- Enable / disable ------------------------------------------------------------
+// Disabled scripts receive no callbacks at all, so their state stays frozen;
+// re-enabling resumes exactly where it left off.
+const tMgr = new LuaManager(() => [800, 600]);
+const tRes = tMgr.add('toggle.lua', `
+local n = 0
+function onFrame(dt)
+    n = n + 1
+    clearCanvas()
+    drawText('n=' .. n, 0, 0)
+end
+`);
+assert.equal(tRes.ok, true);
+tMgr.frame(0.016);
+assert.equal(tMgr.scenes()[0].scene[0].text, 'n=1');
+
+tMgr.setEnabled(tRes.id, false);
+tMgr.frame(0.016);
+tMgr.frame(0.016);
+assert.ok(!tMgr.scenes().some((s) => s.name === 'toggle.lua'), 'disabled script contributes no scene');
+assert.equal(tMgr.scripts()[0].enabled, false);
+
+tMgr.setEnabled(tRes.id, true);
+tMgr.frame(0.016);
+const tScene = tMgr.scenes().find((s) => s.name === 'toggle.lua').scene;
+assert.equal(tScene[0].text, 'n=2', 'callbacks were skipped while disabled');
+
 // --- Example scripts load and behave ---------------------------------------------
 for (const name of ['combat-timer.lua', 'zone-banner.lua']) {
   const code = readFileSync(path.join(examplesDir, name), 'utf8');

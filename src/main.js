@@ -3,6 +3,14 @@ import { parseLogLine, LineType } from './logParser.js';
 import { CombatTimer, TimerState, formatElapsed } from './combatTimer.js';
 import { IinactClient } from './wsClient.js';
 import { LuaManager } from './luaEngine.js';
+import p4DebuffsCode from '../bundled/dmu-p4-debuffs.lua?raw';
+import limitCutCode from '../bundled/limit-cut.lua?raw';
+
+// Scripts shipped with the app: always available, cannot be deleted, only toggled.
+const BUILTIN_SCRIPTS = [
+  { name: 'dmu-p4-debuffs.lua', code: p4DebuffsCode },
+  { name: 'limit-cut.lua', code: limitCutCode },
+];
 
 const timer = new CombatTimer();
 
@@ -204,57 +212,131 @@ async function runReplay(fileText) {
   }
 }
 
-// --- Persisted Lua scripts (localStorage) ----------------------------------
+// --- Persisted script state (localStorage) -----------------------------------
 const SCRIPTS_STORAGE_KEY = 'ffxiv-raid-viewer-lua-scripts';
 
-function readStoredScripts() {
+// Shape v2: { custom: {name: code}, enabled: {name: bool} }. Legacy v1 stored a
+// flat name -> code map; migrate it by dropping saved copies of scripts that are
+// now bundled (keeping both would load the same tracker twice).
+function readStoredState() {
+  const fresh = () => ({ custom: new Map(), enabled: new Map() });
+  let parsed = null;
   try {
     const raw = localStorage.getItem(SCRIPTS_STORAGE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-        return new Map(Object.entries(parsed));
+    if (raw) parsed = JSON.parse(raw);
+  } catch { /* corrupted storage — start fresh */ }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return fresh();
+
+  const state = fresh();
+  if (typeof parsed.custom === 'object' && parsed.custom !== null) {
+    for (const [name, code] of Object.entries(parsed.custom)) {
+      if (typeof code === 'string') state.custom.set(name, code);
+    }
+    if (parsed.enabled && typeof parsed.enabled === 'object') {
+      for (const [name, on] of Object.entries(parsed.enabled)) {
+        if (typeof on === 'boolean') state.enabled.set(name, on);
       }
     }
-  } catch { /* corrupted storage — start fresh */ }
-  return new Map();
+    return state;
+  }
+
+  const builtinNames = new Set(BUILTIN_SCRIPTS.map((s) => s.name));
+  for (const [name, code] of Object.entries(parsed)) {
+    if (typeof code === 'string' && !builtinNames.has(name)) state.custom.set(name, code);
+  }
+  return state;
 }
 
-const storedScripts = readStoredScripts();
+const scriptState = readStoredState();
 
-function persistStoredScripts() {
+function persistScriptState() {
   try {
-    localStorage.setItem(SCRIPTS_STORAGE_KEY, JSON.stringify(Object.fromEntries(storedScripts)));
+    localStorage.setItem(SCRIPTS_STORAGE_KEY, JSON.stringify({
+      custom: Object.fromEntries(scriptState.custom),
+      enabled: Object.fromEntries(scriptState.enabled),
+    }));
   } catch (err) {
     addEvent(`Could not save scripts to localStorage: ${err.message}`);
   }
 }
 
 // --- Lua script manager UI -------------------------------------------------
-function addScriptItem(id, name) {
+// Section labels: "Built-In" is always present; "Custom" appears only while at
+// least one custom script exists. Custom items are slotted in just above the
+// Built-In divider so live-added scripts land in the same place as on reload.
+const builtinDivider = document.createElement('li');
+builtinDivider.className = 'script-section';
+builtinDivider.textContent = 'Built-in';
+let customDivider = null;
+
+function makeScriptItem(id, name, { builtin = false, enabled = true } = {}) {
   const li = document.createElement('li');
   li.dataset.scriptId = String(id);
+  if (builtin) li.dataset.builtin = 'true';
+
+  const toggle = document.createElement('input');
+  toggle.type = 'checkbox';
+  toggle.className = 'script-toggle';
+  toggle.checked = enabled;
+  toggle.title = builtin ? 'Built-in script — enable or disable' : 'Enable or disable script';
+  toggle.addEventListener('change', () => {
+    luaManager.setEnabled(id, toggle.checked);
+    scriptState.enabled.set(name, toggle.checked);
+    persistScriptState();
+    li.classList.toggle('script-disabled', !toggle.checked);
+  });
 
   const label = document.createElement('span');
   label.className = 'script-name';
   label.textContent = name;
 
-  const btn = document.createElement('button');
-  btn.className = 'script-remove';
-  btn.title = 'Remove script';
-  btn.textContent = '\u2715';
-  btn.addEventListener('click', () => {
-    luaManager.remove(id);
-    li.remove();
-    if (!luaManager.scripts().some((e) => e.name === name)) {
-      storedScripts.delete(name);
-      persistStoredScripts();
-    }
-    addEvent(`Script removed: ${name}`);
-  });
+  li.append(toggle, label);
 
-  li.append(label, btn);
-  scriptList.appendChild(li);
+  if (!builtin) {
+    const btn = document.createElement('button');
+    btn.className = 'script-remove';
+    btn.title = 'Remove script';
+    btn.textContent = '\u2715';
+    btn.addEventListener('click', () => {
+      luaManager.remove(id);
+      li.remove();
+      if (!luaManager.scripts().some((e) => e.name === name)) {
+        scriptState.custom.delete(name);
+        scriptState.enabled.delete(name);
+        persistScriptState();
+      }
+      dropCustomDividerIfEmpty();
+      addEvent(`Script removed: ${name}`);
+    });
+    li.appendChild(btn);
+  }
+
+  if (!enabled) {
+    luaManager.setEnabled(id, false);
+    li.classList.add('script-disabled');
+  }
+  return li;
+}
+
+function dropCustomDividerIfEmpty() {
+  const hasCustom = [...scriptList.querySelectorAll('li[data-script-id]')]
+    .some((el) => !el.dataset.builtin);
+  if (!hasCustom && customDivider) {
+    customDivider.remove();
+    customDivider = null;
+  }
+}
+
+// Slots a custom script item into the Custom block above the Built-In divider,
+// creating the "Custom" label on first use.
+function placeCustomItem(li) {
+  if (!customDivider) {
+    customDivider = document.createElement('li');
+    customDivider.className = 'script-section';
+    customDivider.textContent = 'Custom';
+    builtinDivider.before(customDivider);
+  }
+  builtinDivider.before(li);
 }
 
 function syncLuaErrors() {
@@ -274,14 +356,21 @@ function syncLuaErrors() {
   }
 }
 
+const builtinNames = new Set(BUILTIN_SCRIPTS.map((s) => s.name));
+
 luaFileInput.addEventListener('change', async () => {
   for (const file of [...(luaFileInput.files ?? [])]) {
+    if (builtinNames.has(file.name)) {
+      luaErrorEl.hidden = false;
+      luaErrorEl.textContent = `${file.name} ships with the app — toggle it in the list below`;
+      continue;
+    }
     const code = await file.text();
     const result = luaManager.add(file.name, code);
     if (result.ok) {
-      storedScripts.set(file.name, code);
-      persistStoredScripts();
-      addScriptItem(result.id, file.name);
+      scriptState.custom.set(file.name, code);
+      persistScriptState();
+      placeCustomItem(makeScriptItem(result.id, file.name));
       addEvent(`Script loaded: ${file.name}`);
     } else {
       luaErrorEl.hidden = false;
@@ -292,20 +381,35 @@ luaFileInput.addEventListener('change', async () => {
   luaFileInput.value = ''; // allow re-adding the same file
 });
 
-(function restoreStoredScripts() {
-  if (storedScripts.size === 0) return;
+// Custom scripts first (list order), then the built-ins below a section divider.
+(function restoreScripts() {
+  // The Built-In divider goes in before any items so placeCustomItem can slot
+  // custom entries above it while restoring.
+  scriptList.appendChild(builtinDivider);
+
   let restored = 0;
-  for (const [name, code] of [...storedScripts]) {
+  for (const [name, code] of [...scriptState.custom]) {
     const result = luaManager.add(name, code);
     if (result.ok) {
-      addScriptItem(result.id, name);
+      placeCustomItem(makeScriptItem(result.id, name, { enabled: scriptState.enabled.get(name) ?? true }));
       restored++;
     } else {
-      storedScripts.delete(name); // don't retry a broken script on every reload
+      scriptState.custom.delete(name); // don't retry a broken script on every reload
     }
   }
-  persistStoredScripts();
-  if (restored > 0) addEvent(`Restored ${restored} script(s) from localStorage`);
+
+  for (const builtin of BUILTIN_SCRIPTS) {
+    const result = luaManager.add(builtin.name, builtin.code);
+    if (!result.ok) {
+      luaErrorEl.hidden = false;
+      luaErrorEl.textContent = `${builtin.name}: ${result.error}`;
+      continue; // bundled scripts must compile — surface the error instead of hiding it
+    }
+    scriptList.appendChild(makeScriptItem(result.id, builtin.name, { builtin: true, enabled: scriptState.enabled.get(builtin.name) ?? true }));
+  }
+
+  persistScriptState();
+  if (restored > 0) addEvent(`Restored ${restored} custom script(s) from localStorage`);
 })();
 
 // --- Wiring ----------------------------------------------------------------

@@ -1,4 +1,4 @@
-// Tests for examples/dmu-p4-debuffs.lua using real DMU P4 log snippets plus synthetic lines.
+// Tests for bundled/dmu-p4-debuffs.lua using real DMU P4 log snippets plus synthetic lines.
 import { strict as assert } from 'node:assert';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -6,7 +6,7 @@ import path from 'node:path';
 import { LuaManager } from '../src/luaEngine.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const code = readFileSync(path.join(here, '..', 'examples', 'dmu-p4-debuffs.lua'), 'utf8');
+const code = readFileSync(path.join(here, '..', 'bundled', 'dmu-p4-debuffs.lua'), 'utf8');
 
 // Group the scene's text ops into visual rows (each table row has a unique y).
 // Cells are { text, color } sorted by x so highlight colors can be asserted.
@@ -34,8 +34,7 @@ function hasVerdict(row, verdict) {
 // Replays the whole snippet, running frames periodically like the live app does so
 // unknown mechanics get their per-frame tell re-check.
 function replay(mgr, file) {
-  const lines = readFileSync(path.join(here, '..', 'logs', file), 'utf8')
-    .split('\n').map((l) => l.trim()).filter(Boolean);
+  const lines = readFileSync(file, 'utf8').split('\n').map((l) => l.trim()).filter(Boolean);
   for (let i = 0; i < lines.length; i++) {
     mgr.onLogLine(lines[i]);
     if (i % 25 === 0) mgr.frame(1 / 60);
@@ -43,77 +42,102 @@ function replay(mgr, file) {
   mgr.frame(1 / 60);
 }
 
-// --- replay 1: all-fake pull ---------------------------------------------------
-const mgr = new LuaManager(() => [1280, 720]);
-assert.equal(mgr.add('dmu-p4-debuffs.lua', code).ok, true, 'script should load');
-replay(mgr, 'dmu_p4.log');
+const fixture = (name) => path.join(here, 'fixtures', name);
 
-let rows = tableRows(mgr);
+// --- Real-log replays -----------------------------------------------------------
+// Each pull below is a snippet of consumed line types cut from a full session log:
+// three Grand Cross rounds plus one Tsunami and one Inferno round, real/fake tells
+// mixed. Minda Silva (the default primary player) is in the party for both.
 
-// Every mechanic of this pull resolved FAKE.
-for (const label of [
-  'Acceleration Bomb', 'Cursed Shriek (Short)', 'Cursed Shriek (Long)', 'Inferno', 'Tsunami',
-]) {
-  assert.ok(hasVerdict(rowWith(rows, label), '[FAKE]'), `${label} [FAKE], got: ${JSON.stringify(rowWith(rows, label))}`);
+function testMixedPullLatestFake() {
+  // Rounds: GC#1 REAL, Tsunami REAL, GC#2 REAL, Inferno FAKE, GC#3 FAKE.
+  const mgr = new LuaManager(() => [1280, 720]);
+  assert.equal(mgr.add('dmu-p4-debuffs.lua', code).ok, true, 'script should load');
+  replay(mgr, fixture('p4_mixed_latest_fake.log'));
+
+  const rows = tableRows(mgr);
+
+  // Global rows follow the LATEST round: GC#3's FAKE cast overwrote the REAL shriek
+  // rounds. Inferno stayed [FAKE] even though its Entropy debuffs landed AFTER Chaos's
+  // tell had lifted — the cast stamped it while the tell was still fresh, and a late
+  // apply must not downgrade an already-resolved round to unknown.
+  assert.ok(hasVerdict(rowWith(rows, 'Cursed Shriek (Short)'), '[FAKE]'), `csShort [FAKE]: ${JSON.stringify(rowWith(rows, 'Cursed Shriek (Short)'))}`);
+  assert.ok(hasVerdict(rowWith(rows, 'Cursed Shriek (Long)'), '[FAKE]'), `csLong [FAKE]: ${JSON.stringify(rowWith(rows, 'Cursed Shriek (Long)'))}`);
+  assert.ok(hasVerdict(rowWith(rows, 'Inferno'), '[FAKE]'), `inferno [FAKE]: ${JSON.stringify(rowWith(rows, 'Inferno'))}`);
+  assert.ok(hasVerdict(rowWith(rows, 'Tsunami'), '[REAL]'), `tsunami [REAL]: ${JSON.stringify(rowWith(rows, 'Tsunami'))}`);
+
+  // Personal rows pin to YOUR debuff's round: Minda's Compressed Water came from GC#2
+  // (REAL) and her Acceleration Bomb from GC#1 (REAL), so both stay [REAL] even though
+  // the final shriek rounds were FAKE. She holds water, not lightning.
+  const cwflRow = rowWith(rows, 'Compressed Water');
+  assert.ok(hasVerdict(cwflRow, '[REAL]'), `cw/fl row [REAL]: ${JSON.stringify(cwflRow)}`);
+  assert.equal(cwflRow.find((c) => c.text === 'Compressed Water').color, '#ffd27f', 'water highlighted for Minda');
+  assert.equal(cwflRow.find((c) => c.text.startsWith('/ Forked Lightning')).color, '#6a6a80', 'lightning dimmed');
+  assert.ok(hasVerdict(rowWith(rows, 'Acceleration Bomb'), '[REAL]'), `ab [REAL]: ${JSON.stringify(rowWith(rows, 'Acceleration Bomb'))}`);
+
+  // "you" markers: her 60s shriek is the Short class; she carries Entropy + Dynamic Fluid.
+  assert.ok(rowWith(rows, 'Cursed Shriek (Short)').some((c) => c.text === 'you'), '"you" on shriek Short');
+  assert.ok(!rowWith(rows, 'Cursed Shriek (Long)').some((c) => c.text === 'you'), 'no "you" on shriek Long');
+  assert.ok(rowWith(rows, 'Inferno').some((c) => c.text === 'you'), '"you" on Inferno (has Entropy)');
+  assert.ok(rowWith(rows, 'Tsunami').some((c) => c.text === 'you'), '"you" on Tsunami (has Dynamic Fluid)');
+
+  // Cast tracking saw all three big moves; at the end only Neo Exdeath's GC#3 FAKE tell
+  // is still active — Chaos's Inferno tell was removed before the snippet ends.
+  const castLine = rows.find((r) => r[0].text.startsWith('last casts:'));
+  assert.ok(castLine, 'cast line drawn');
+  for (const name of ['Grand Cross', 'Inferno', 'Tsunami']) {
+    assert.ok(castLine.some((c) => c.text.includes(name)), `last casts includes ${name}: ${JSON.stringify(castLine)}`);
+  }
+
+  const tellLine = rows.find((r) => r[0].text.startsWith('boss tells:'));
+  assert.ok(tellLine, 'tell line drawn');
+  assert.ok(tellLine.some((c) => c.text.includes('Neo Exdeath fake p=1121')), `NE fake tell shown: ${JSON.stringify(tellLine)}`);
+  assert.ok(!tellLine.some((c) => c.text.includes('Chaos')), `chaos tell removed: ${JSON.stringify(tellLine)}`);
 }
 
-// Minda carried Compressed Water through the whole snippet: that name is highlighted.
-const cwflRow = rowWith(rows, 'Compressed Water');
-assert.ok(hasVerdict(cwflRow, '[FAKE]'), `cw/fl row [FAKE]: ${JSON.stringify(cwflRow)}`);
-assert.equal(cwflRow.find((c) => c.text === 'Compressed Water').color, '#ffd27f', 'water highlighted for Minda');
-assert.equal(cwflRow.find((c) => c.text.startsWith('/ Forked Lightning')).color, '#6a6a80', 'lightning dimmed');
+function testMixedPullLatestReal() {
+  // Rounds: GC#1 REAL, Tsunami REAL, GC#2 FAKE, Inferno FAKE, GC#3 REAL.
+  const mgr = new LuaManager(() => [1280, 720]);
+  assert.equal(mgr.add('dmu-p4-debuffs.lua', code).ok, true, 'script should load (pull 2)');
+  replay(mgr, fixture('p4_mixed_latest_real.log'));
 
-// "you" markers: her 69s shriek is the Long class and she carries Entropy (Inferno).
-assert.ok(rowWith(rows, 'Cursed Shriek (Long)').some((c) => c.text === 'you'), '"you" on shriek Long');
-assert.ok(!rowWith(rows, 'Cursed Shriek (Short)').some((c) => c.text === 'you'), 'no "you" on shriek Short');
-assert.ok(rowWith(rows, 'Inferno').some((c) => c.text === 'you'), '"you" on Inferno (has Entropy)');
-assert.ok(!rowWith(rows, 'Tsunami').some((c) => c.text === 'you'), 'no "you" on Tsunami');
+  const rows = tableRows(mgr);
 
-// Cast tracking saw all three big moves.
-const castLine = rows.find((r) => r[0].text.startsWith('last casts:'));
-assert.ok(castLine, 'cast line drawn');
-for (const name of ['Grand Cross', 'Inferno', 'Tsunami']) {
-  assert.ok(castLine.some((c) => c.text.includes(name)), `last casts includes ${name}: ${JSON.stringify(castLine)}`);
+  // Globals follow the LATEST round: GC#3's REAL cast overwrote GC#2's FAKE one.
+  assert.ok(hasVerdict(rowWith(rows, 'Cursed Shriek (Short)'), '[REAL]'), `csShort [REAL]: ${JSON.stringify(rowWith(rows, 'Cursed Shriek (Short)'))}`);
+  assert.ok(hasVerdict(rowWith(rows, 'Cursed Shriek (Long)'), '[REAL]'), `csLong [REAL]: ${JSON.stringify(rowWith(rows, 'Cursed Shriek (Long)'))}`);
+  assert.ok(hasVerdict(rowWith(rows, 'Inferno'), '[FAKE]'), `inferno [FAKE]: ${JSON.stringify(rowWith(rows, 'Inferno'))}`);
+  assert.ok(hasVerdict(rowWith(rows, 'Tsunami'), '[REAL]'), `tsunami [REAL]: ${JSON.stringify(rowWith(rows, 'Tsunami'))}`);
+
+  // Personal rows are SPLIT here: her Compressed Water landed in GC#2's FAKE round while
+  // her Acceleration Bomb came from GC#1's REAL round. She holds water, not lightning.
+  const cwflRow = rowWith(rows, 'Compressed Water');
+  assert.ok(hasVerdict(cwflRow, '[FAKE]'), `cw/fl row [FAKE]: ${JSON.stringify(cwflRow)}`);
+  assert.equal(cwflRow.find((c) => c.text === 'Compressed Water').color, '#ffd27f', 'water highlighted for Minda');
+  assert.equal(cwflRow.find((c) => c.text.startsWith('/ Forked Lightning')).color, '#6a6a80', 'lightning dimmed');
+  assert.ok(hasVerdict(rowWith(rows, 'Acceleration Bomb'), '[REAL]'), `ab [REAL]: ${JSON.stringify(rowWith(rows, 'Acceleration Bomb'))}`);
+
+  // "you" markers: she carries Entropy + Dynamic Fluid but no Cursed Shriek this pull.
+  assert.ok(!rowWith(rows, 'Cursed Shriek (Short)').some((c) => c.text === 'you'), 'no "you" on shriek Short');
+  assert.ok(!rowWith(rows, 'Cursed Shriek (Long)').some((c) => c.text === 'you'), 'no "you" on shriek Long');
+  assert.ok(rowWith(rows, 'Inferno').some((c) => c.text === 'you'), '"you" on Inferno (has Entropy)');
+  assert.ok(rowWith(rows, 'Tsunami').some((c) => c.text === 'you'), '"you" on Tsunami (has Dynamic Fluid)');
+
+  const castLine = rows.find((r) => r[0].text.startsWith('last casts:'));
+  assert.ok(castLine, 'cast line drawn (pull 2)');
+  for (const name of ['Grand Cross', 'Inferno', 'Tsunami']) {
+    assert.ok(castLine.some((c) => c.text.includes(name)), `last casts includes ${name}: ${JSON.stringify(castLine)}`);
+  }
+
+  // GC#3's REAL tell is still active at the end of the snippet; Chaos's was removed.
+  const tellLine = rows.find((r) => r[0].text.startsWith('boss tells:'));
+  assert.ok(tellLine, 'tell line drawn (pull 2)');
+  assert.ok(tellLine.some((c) => c.text.includes('Neo Exdeath real p=1122')), `NE real tell shown: ${JSON.stringify(tellLine)}`);
+  assert.ok(!tellLine.some((c) => c.text.includes('Chaos')), `chaos tell removed: ${JSON.stringify(tellLine)}`);
 }
 
-// At the end only Chaos's FAKE p=1119 tell is still active; Neo Exdeath's was removed.
-const tellLine = rows.find((r) => r[0].text.startsWith('boss tells:'));
-assert.ok(tellLine, 'tell line drawn');
-assert.ok(tellLine.some((c) => c.text.includes('Chaos fake p=1119')), `chaos fake tell shown: ${JSON.stringify(tellLine)}`);
-assert.ok(!tellLine.some((c) => c.text.includes('Neo Exdeath')), `NE tell removed: ${JSON.stringify(tellLine)}`);
-
-// --- replay 2: mixed pull (GC#1 real, GC#2 / Tsunami / Inferno fake) -----------
-const mgr2 = new LuaManager(() => [1280, 720]);
-assert.equal(mgr2.add('dmu-p4-debuffs.lua', code).ok, true, 'script should load (log 2)');
-replay(mgr2, 'dmu_p4-2.log');
-
-rows = tableRows(mgr2);
-
-// Global rows reflect the LATEST round: GC#2's FAKE tell overwrote GC#1's REAL one.
-for (const label of [
-  'Acceleration Bomb', 'Cursed Shriek (Short)', 'Cursed Shriek (Long)', 'Inferno', 'Tsunami',
-]) {
-  assert.ok(hasVerdict(rowWith(rows, label), '[FAKE]'), `${label} [FAKE], got: ${JSON.stringify(rowWith(rows, label))}`);
-}
-
-// Minda's only water/lightning debuff is GC#1's Forked Lightning (REAL tell): the
-// personal row stays pinned to [REAL] even though GC#2's FAKE round came after.
-const cwflRow2 = rowWith(rows, 'Compressed Water');
-assert.ok(hasVerdict(cwflRow2, '[REAL]'), `cw/fl row [REAL]: ${JSON.stringify(cwflRow2)}`);
-assert.equal(cwflRow2.find((c) => c.text === '/ Forked Lightning').color, '#ffd27f', 'lightning highlighted for Minda');
-assert.equal(cwflRow2.find((c) => c.text === 'Compressed Water').color, '#6a6a80', 'water dimmed');
-
-// "you" markers: 69s shriek (Long) and Dynamic Fluid (Tsunami); no Entropy this pull.
-assert.ok(rowWith(rows, 'Cursed Shriek (Long)').some((c) => c.text === 'you'), '"you" on shriek Long');
-assert.ok(!rowWith(rows, 'Cursed Shriek (Short)').some((c) => c.text === 'you'), 'no "you" on shriek Short');
-assert.ok(!rowWith(rows, 'Inferno').some((c) => c.text === 'you'), 'no "you" on Inferno (no Entropy)');
-assert.ok(rowWith(rows, 'Tsunami').some((c) => c.text === 'you'), '"you" on Tsunami (has Dynamic Fluid)');
-
-const castLine2 = rows.find((r) => r[0].text.startsWith('last casts:'));
-assert.ok(castLine2, 'cast line drawn (log 2)');
-for (const name of ['Grand Cross', 'Inferno', 'Tsunami']) {
-  assert.ok(castLine2.some((c) => c.text.includes(name)), `last casts includes ${name}: ${JSON.stringify(castLine2)}`);
-}
+testMixedPullLatestFake();
+testMixedPullLatestReal();
 
 // --- cross-phase false positive -------------------------------------------------
 // Other phases reuse the ability NAMES: Kefka casts "Inferno" (BAF4) and
@@ -176,12 +200,21 @@ assert.ok(realLongRow.some((c) => c.text === 'you'), '"you" on shriek Long');
 
 // Tell removal + debuff removal: the mechanic fact persists but the "you" marker clears.
 realMgr.onLogLine('30|2026-09-14T23:50:02.0000000-04:00|808|Unknown_808|0.00|E0000000||400250AA|Neo Exdeath|460|188300||deadbeef22');
-realMgr.onLogLine('30|2026-09-14T23:50:02.5000000-04:00|15A7|Cursed Shriek|0.00|99999999|Minda Silva||||cafe0002');
+
+// A DIFFERENT player's removal of the same status must not clear YOUR marker —
+// each player's copy expires on its own schedule.
+realMgr.onLogLine('30|2026-09-14T23:50:02.2000000-04:00|15A7|Cursed Shriek|0.00|E0000000||AAAA0001|Someone Else||||cafe000a');
+realMgr.frame(1 / 60);
+rt = tableRows(realMgr);
+assert.ok(rowWith(rt, 'Cursed Shriek (Long)').some((c) => c.text === 'you'), "other player's removal keeps your marker");
+
+// YOUR OWN removal line clears it. Remove lines carry the target at f[8]/f[9], like applies.
+realMgr.onLogLine('30|2026-09-14T23:50:02.5000000-04:00|15A7|Cursed Shriek|0.00|E0000000||99999999|Minda Silva||||cafe0002');
 realMgr.frame(1 / 60);
 rt = tableRows(realMgr);
 const clearedLongRow = rowWith(rt, 'Cursed Shriek (Long)');
 assert.ok(hasVerdict(clearedLongRow, '[REAL]'), 'mechanic reality persists after removal');
-assert.ok(!clearedLongRow.some((c) => c.text === 'you'), '"you" marker cleared on removal');
+assert.ok(!clearedLongRow.some((c) => c.text === 'you'), '"you" marker cleared on own removal');
 
 // Zone change resets everything — with no activity left, nothing is drawn.
 realMgr.onChangeZone('Somewhere Else');

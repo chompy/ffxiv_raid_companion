@@ -2,7 +2,5 @@ node_modules/
 dist/
 # Session logs stay local (hundreds of MB); replay-check skips when absent.
 *.log
-# Small limit-cut fixtures required by test/limit-cut.test.mjs
-!logs/p3_lc_w_cw.log
-!logs/p3_lc_sw_cw.log
-!logs/p3_lc_big_pull.log
+# Small replay fixtures required by the test suite
+!test/fixtures/*.log

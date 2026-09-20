@@ -1,14 +1,20 @@
 // Replays every Network_*.log in logs/ through the parser + combat timer and
 // prints a summary. Sanity check that real session data produces sane fights:
-// starts ~= ends, no sub-second "fights".
-import { readdirSync, readFileSync } from 'node:fs';
+// starts ~= ends, no near-zero-length "fights" (real pulls always span seconds).
+import { createReadStream, readdirSync } from 'node:fs';
+import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { parseLogLine } from '../src/logParser.js';
 import { CombatTimer, formatElapsed } from '../src/combatTimer.js';
 
 const logsDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'logs');
-const files = readdirSync(logsDir).filter((f) => /^Network_.*\.log$/.test(f));
+// Fresh clones have no logs/ dir (git does not track empty directories).
+let files = [];
+try {
+  files = readdirSync(logsDir);
+} catch { /* no local captures */ }
+files = files.filter((f) => /^Network_.*\.log$/.test(f));
 if (files.length === 0) {
   console.log('no Network_*.log found in logs/, skipping');
   process.exit(0);
@@ -16,7 +22,8 @@ if (files.length === 0) {
 
 let badDurations = 0;
 for (const file of files) {
-  const text = readFileSync(path.join(logsDir, file), 'utf8');
+  // Stream line-by-line: session logs can exceed Node's max string length.
+  const rl = createInterface({ input: createReadStream(path.join(logsDir, file)) });
   let now = 0;
   const timer = new CombatTimer(() => now);
     let starts = 0;
@@ -24,7 +31,7 @@ for (const file of files) {
     let victories = 0;
     let resets = 0;
 
-  for (const raw of text.split('\n')) {
+  for await (const raw of rl) {
     if (!raw) continue;
     const p = parseLogLine(raw);
     if (!p || Number.isNaN(p.timestampMs)) continue;
@@ -36,7 +43,10 @@ for (const file of files) {
     } else if (ev?.kind === 'end') {
       if (ev.result === 'defeat') defeats++;
       else victories++;
-      if (ev.elapsedMs < 10_000) badDurations++; // a real pull lasts longer than 10s
+      // Even an instant-wipe pull in extreme raids spans several seconds (pull,
+      // first hit, party death, fade-out); only sub-second "fights" indicate a
+      // parser/timer bug.
+      if (ev.elapsedMs < 2_000) badDurations++;
     } else if (ev?.kind === 'zone-reset') {
       resets++;
     }

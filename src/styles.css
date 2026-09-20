@@ -230,10 +230,32 @@ button.primary:hover:not(:disabled) {
   font-size: 13px;
 }
 
+.script-toggle {
+  flex: none;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
 .script-name {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+#script-list li.script-disabled .script-name {
+  opacity: 0.45;
+}
+
+#script-list li.script-section {
+  justify-content: flex-start;
+  border-bottom: none;
+  padding-top: 10px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
 }
 
 #script-list li.script-error .script-name {
