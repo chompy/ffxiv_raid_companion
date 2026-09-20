@@ -107,7 +107,17 @@ export class IinactClient {
       rawLine = text.includes('|') ? text : null;
     }
 
-    if (rawLine && this._onLogLine) this._onLogLine(rawLine);
+    if (rawLine && this._onLogLine) {
+      this._badMsgs = 0;
+      this._onLogLine(rawLine);
+    } else {
+      // A message we cannot turn into a line is silently lost otherwise — an
+      // envelope change would look like "connected but nothing happens".
+      this._badMsgs = (this._badMsgs ?? 0) + 1;
+      if (this._badMsgs === 1 || this._badMsgs % 500 === 0) {
+        console.warn(`[ws] ${this._badMsgs} message(s) without a usable line:`, String(data).slice(0, 160));
+      }
+    }
   }
 
   _scheduleRetry() {
@@ -115,11 +125,18 @@ export class IinactClient {
     this._setState('reconnecting');
     const delay = this._retryDelayMs;
     this._retryDelayMs = Math.min(this._retryDelayMs * 2, 10000);
+    // Every attempt is logged: a long backoff ramp is itself diagnostic.
+    console.warn(`[ws] reconnecting in ${delay}ms`, new Date().toISOString());
     this._retryTimer = setTimeout(() => this._open(), delay);
   }
 
   _setState(state) {
     if (this._lastState !== state) {
+      const prev = this._lastState ?? 'idle';
+      // State transitions are the primary evidence for stream gaps: any lines
+      // not received while disconnected are lost forever, so these timestamps
+      // should be compared against the captured log when something looks off.
+      console.info(`[ws] ${prev} -> ${state}`, new Date().toISOString());
       this._lastState = state;
       this._onState(state);
     }

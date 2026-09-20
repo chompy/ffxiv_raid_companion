@@ -2,6 +2,7 @@ import './styles.css';
 import { parseLogLine, LineType } from './logParser.js';
 import { CombatTimer, TimerState, formatElapsed } from './combatTimer.js';
 import { IinactClient } from './wsClient.js';
+import { createSeqGapTracker } from './seqGap.js';
 import { LuaManager } from './luaEngine.js';
 import p4DebuffsCode from '../bundled/dmu-p4-debuffs.lua?raw';
 import limitCutCode from '../bundled/limit-cut.lua?raw';
@@ -69,12 +70,31 @@ function addEvent(text) {
 
 // --- Log line pipeline ---------------------------------------------------
 // Pipeline shared by live websocket lines and replayed file lines.
+const checkSeqGap = createSeqGapTracker();
+
 function handleRawLine(rawLine) {
   const parsed = parseLogLine(rawLine);
   if (parsed) deliverLine(parsed, rawLine);
 }
 
 function deliverLine(parsed, rawLine) {
+  // A jump in the ability counter means cast lines never arrived — log with
+  // the line's own timestamp so it can be located in the captured file. Runs
+  // for replay too: a gap there means the capture itself dropped lines.
+  const gap = checkSeqGap(parsed);
+  if (gap) {
+    const when = new Date(gap.timestampMs).toISOString();
+    if (gap.kind === 'base-reset') {
+      console.info(`[gap] ${when} action-seq base reset +${gap.jump} (combat start)`);
+    } else {
+      // A full limit-cut round is 8 casts; bigger jumps are almost certainly a
+      // real stream gap, small ones can be counter noise in the capture.
+      const msg = `${when} action-seq +${gap.jump} (${gap.from.toString(16)} -> ${gap.to.toString(16)}) — ~${gap.jump} cast line(s) missing`;
+      if (gap.jump >= 8) console.warn('[gap]', msg);
+      else console.info('[gap]', msg);
+    }
+  }
+
   const event = timer.handleLine(parsed);
   if (event) {
     if (event.kind === 'start') {
