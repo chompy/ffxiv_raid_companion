@@ -1,4 +1,4 @@
-// Tests for bundled/limit-cut.lua using real NetworkAbility lines from a Kefka session.
+// Tests for bundled/dmu-p3-limit-cut.lua using real NetworkAbility lines from a Kefka session.
 import { strict as assert } from 'node:assert';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -6,7 +6,7 @@ import path from 'node:path';
 import { LuaManager } from '../src/luaEngine.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const code = readFileSync(path.join(here, '..', 'bundled', 'limit-cut.lua'), 'utf8');
+const code = readFileSync(path.join(here, '..', 'bundled', 'dmu-p3-limit-cut.lua'), 'utf8');
 
 // Real "Ultima Blaster" clone casts (action BAE4) from logs/Network_30300_20260914.log.
 // These lines carry NO movement events, so the tracker falls back to the caster pair
@@ -23,7 +23,7 @@ function sceneTexts(mgr) {
 }
 
 const mgr = new LuaManager(() => [1280, 720]);
-const res = mgr.add('limit-cut.lua', code);
+const res = mgr.add('dmu-p3-limit-cut.lua', code);
 assert.equal(res.ok, true, `script should load: ${res.error ?? ''}`);
 
 // Before any cast: canvas stays empty.
@@ -96,7 +96,7 @@ function cloneLine(caster, seq, x, z) {
 }
 
 const ccwMgr = new LuaManager(() => [1280, 720]);
-assert.equal(ccwMgr.add('limit-cut.lua', code).ok, true);
+assert.equal(ccwMgr.add('dmu-p3-limit-cut.lua', code).ok, true);
 // First clone at (88,112): mirror is (112,88) → exactly NE. Second at (85,100), +45° CCW of it.
 ccwMgr.onLogLine(cloneLine('AAAA0001', 'SEQA', 88, 112));
 ccwMgr.onLogLine(cloneLine('AAAA0002', 'SEQB', 85, 100));
@@ -119,7 +119,7 @@ function blasterLine(caster, x, z) {
 }
 
 const earlyMgr = new LuaManager(() => [1280, 720]);
-assert.equal(earlyMgr.add('limit-cut.lua', code).ok, true);
+assert.equal(earlyMgr.add('dmu-p3-limit-cut.lua', code).ok, true);
 // d ≈ 4.5 and d ≈ 6.9 — both inside the old MIN_CLONE_DIST=10 rejection band.
 earlyMgr.onLogLine(blasterLine('BBBB0001', 97, 103));
 earlyMgr.frame(1 / 60);
@@ -136,7 +136,7 @@ assert.ok(early.includes('waiting for second clone...'));
 // --- full-log replays (movement events are the position source) ----------------
 function replayLog(logName) {
   const m = new LuaManager(() => [1280, 720]);
-  assert.equal(m.add('limit-cut.lua', code).ok, true);
+  assert.equal(m.add('dmu-p3-limit-cut.lua', code).ok, true);
   for (const line of readFileSync(path.join(here, 'fixtures', logName), 'utf8').split('\n')) {
     if (line) m.onLogLine(line);
   }

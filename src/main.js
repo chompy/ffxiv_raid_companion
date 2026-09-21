@@ -5,12 +5,12 @@ import { IinactClient } from './wsClient.js';
 import { createSeqGapTracker } from './seqGap.js';
 import { LuaManager } from './luaEngine.js';
 import p4DebuffsCode from '../bundled/dmu-p4-debuffs.lua?raw';
-import limitCutCode from '../bundled/limit-cut.lua?raw';
+import limitCutCode from '../bundled/dmu-p3-limit-cut.lua?raw';
 
 // Scripts shipped with the app: always available, cannot be deleted, only toggled.
 const BUILTIN_SCRIPTS = [
   { name: 'dmu-p4-debuffs.lua', code: p4DebuffsCode },
-  { name: 'limit-cut.lua', code: limitCutCode },
+  { name: 'dmu-p3-limit-cut.lua', code: limitCutCode },
 ];
 
 const timer = new CombatTimer();
