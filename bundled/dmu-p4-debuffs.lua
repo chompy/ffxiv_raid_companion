@@ -13,8 +13,9 @@
 -- If no fresh (<20s) tell is active when something triggers it stays ??? and
 -- is re-checked every frame until one shows up (mirrors dmu-p4-debuff-helper).
 
--- Under the table, each of the six resolution windows gets its own huge line.
--- Windows 1 and 4 are always shown — holding no debuff in a wave means you stack:
+-- Under the table, all six resolution windows get their own huge line; a window
+-- with nothing resolved yet is drawn blank and dimmed. Windows 1 and 4 show
+-- STACK when you hold no debuff in that wave — an empty wave means stack:
 --   1st: short-timer water/lightning/bomb   2nd: short Cursed Shriek   3rd: Inferno
 --   4th: long-timer water/lightning/bomb    5th: long Cursed Shriek    6th: Tsunami
 -- Words come from the per-status reality maps below. The two personal waves are
@@ -282,11 +283,12 @@ local function waveClass(expireAt, appliedAtMs)
   return expireAt <= boundary and "short" or "long"
 end
 
--- The six resolution windows, in fixed order. Windows 1 and 4 always come back:
--- an empty wave means you hold nothing that resolves there, so you stack. Your
--- water/lightning/bomb words chain with "+" inside their wave. While any of your
--- debuffs is still unclassifiable (one wave unseen) the defaults are withheld —
--- we cannot know which window yours would land in.
+-- The six resolution windows, always all six, in fixed order; entries without a
+-- resolved word come back inactive and render dimmed/blank. Windows 1 and 4 get
+-- STACK when you hold nothing that resolves there — an empty wave means stack.
+-- Your water/lightning/bomb words chain with "+" inside their wave. While any of
+-- your debuffs is still unclassifiable (one wave unseen) the defaults are withheld
+-- — we cannot know which window yours would land in, so both render inactive.
 local function resolutionSlots()
   local shortParts, longParts, unresolved = {}, {}, 0
   for _, ent in pairs(personal) do
@@ -319,7 +321,8 @@ local function resolutionSlots()
 
   local out = {}
   for i = 1, 6 do
-    if words[i] then out[#out+1] = i .. " - " .. words[i] end
+    if words[i] then out[i] = { text = i .. " - " .. words[i], active = true }
+    else out[i] = { text = i .. " -", active = false } end
   end
   return out
 end
@@ -430,7 +433,7 @@ onFrame = function(_dt)
     -- Fill the width for the longest line; share the leftover height across lines.
     local longest = 0
     for _, s in ipairs(slots) do
-      if #s > longest then longest = #s end
+      if #s.text > longest then longest = #s.text end
     end
     lineSize = math.floor(w * 0.94 / (longest * 0.62))
     local perLine = math.floor((h - topH - 18) / (#slots * 1.35))
@@ -485,9 +488,10 @@ onFrame = function(_dt)
   table.sort(tellParts)
   drawText("boss tells: " .. (next(tellParts) and table.concat(tellParts, ", ") or "-"), nameX, y, 13, C_INFO)
 
-  -- One huge line per resolution window that still has something to resolve —
-  -- hard to miss at a glance. All lines share the same left edge.
+  -- One huge line per resolution window — hard to miss at a glance. All lines
+  -- share the same left edge; windows with nothing to resolve stay dimmed.
   for i, s in ipairs(slots) do
-    drawText(s, leftX, y + 16 + (i - 1) * pitch + math.floor(lineSize * 0.9), lineSize, C_ACCENT)
+    drawText(s.text, leftX, y + 16 + (i - 1) * pitch + math.floor(lineSize * 0.9), lineSize,
+      s.active and C_ACCENT or C_DIMMED)
   end
 end
