@@ -13,6 +13,15 @@
 -- If no fresh (<20s) tell is active when something triggers it stays ??? and
 -- is re-checked every frame until one shows up (mirrors dmu-p4-debuff-helper).
 
+-- Under the table, each of the six resolution windows gets its own huge line.
+-- Windows 1 and 4 are always shown — holding no debuff in a wave means you stack:
+--   1st: short-timer water/lightning/bomb   2nd: short Cursed Shriek   3rd: Inferno
+--   4th: long-timer water/lightning/bomb    5th: long Cursed Shriek    6th: Tsunami
+-- Words come from the per-status reality maps below. The two personal waves are
+-- told apart by expiry clustering: the party's debuffs always resolve at the same
+-- moment (durations differ per player, expiries align), so the earlier cluster is
+-- the short wave and the later one the long wave.
+
 local TELL_STATUS = "808"
 local FRESH_TELL_MS = 20000
 
@@ -59,12 +68,14 @@ local STATUS_PERSONAL = {
 
 local MECH_BOSSES = { csShort="Neo Exdeath", csLong="Neo Exdeath", inferno="Chaos", tsunami="Chaos" }
 
--- A cast names the whole round, so it stamps every global mechanic of its boss even
--- if some apply lines never arrive (e.g. a snippet cut before they do). Matched on
--- ACTION HEX + caster name: other phases reuse these ability names (Kefka has his
--- own "Inferno" BAF4 / "Tsunami" BAF5), so the display name alone is ambiguous.
+-- Chaos casts stamp their global mechanic even if apply lines never arrive (e.g. a
+-- snippet cut before they do). Matched on ACTION HEX + caster name: other phases
+-- reuse these ability names (Kefka has his own "Inferno" BAF4 / "Tsunami" BAF5), so
+-- the display name alone is ambiguous. Grand Cross stamps NO shriek rows: each round
+-- applies only ONE shriek class, and which one is revealed by the apply lines'
+-- durations — a cast cannot say. (GC casts are still recorded for the footer.)
 local CASTS = {
-  BB14 = { boss="Neo Exdeath", keys={ "csShort", "csLong" } }, -- Grand Cross
+  BB14 = { boss="Neo Exdeath", keys={} }, -- Grand Cross
   BB1E = { boss="Chaos",       keys={ "inferno" } },           -- Inferno
   BB20 = { boss="Chaos",       keys={ "inferno" } },           -- Inferno (sub-entity caster)
   BB1F = { boss="Chaos",       keys={ "tsunami" } },           -- Tsunami
@@ -78,6 +89,7 @@ local tells    = {} -- bossName -> { param=, atMs= } (currently held tell)
 local priorTells = {} -- bossName -> { param=, endedAtMs= } (tell already active when the log started)
 local tellSeen   = {} -- bossName -> true once any of its tell lines was observed this session
 local casts      = {} -- cast name -> last seen ms
+local personalWaves = {} -- { at=, expire= } for every observed cwfl/ab apply (any carrier)
 local lastActivityMs = nil -- when the newest mechanic-related line was seen (nil = nothing to show)
 
 function resetAll()
@@ -88,6 +100,7 @@ function resetAll()
   priorTells = {}
   tellSeen = {}
   casts = {}
+  personalWaves = {}
   lastActivityMs = nil
 end
 
@@ -168,6 +181,14 @@ local function isMe(id, name)
   return id == MY_ID or name == MY_NAME
 end
 
+-- Every carrier's cwfl/bomb apply lands here: the party's debuffs resolve in two
+-- simultaneous waves and these records are what reveal where the waves split.
+local function notePersonalWave(durS, appliedAtMs)
+  if not durS or durS <= 0 then return end
+  personalWaves[#personalWaves+1] = { at=appliedAtMs, expire=appliedAtMs + math.floor(durS * 1000 + 0.5) }
+  if #personalWaves > 256 then table.remove(personalWaves, 1) end
+end
+
 local function parseDebuff(raw)
   local f = splitLine(raw)
   if #f < 9 or (f[1] ~= "26" and f[1] ~= "30") then return end
@@ -205,13 +226,17 @@ local function parseDebuff(raw)
     if isMe(targetId, targetName) then
       mine[status] = { durationS=dur, appliedAtMs=appliedAtMs }
     end
-  elseif isMe(targetId, targetName) then
-    -- Personal: pin YOUR debuff's reality the moment it lands; a later round
-    -- cannot overwrite it while yours is still up.
-    local r, p = tellReality(personalInfo.boss, appliedAtMs)
-    personal[status] = { boss=personalInfo.boss, row=personalInfo.row, durationS=dur,
-                         appliedAtMs=appliedAtMs, reality=r, tellParam=p }
-    mine[status] = { durationS=dur, appliedAtMs=appliedAtMs }
+  else
+    -- Personal: ANY carrier's apply informs wave timing (see waveClass), and YOUR
+    -- debuff pins its own reality the moment it lands; a later round cannot
+    -- overwrite it while yours is still up.
+    notePersonalWave(dur, appliedAtMs)
+    if isMe(targetId, targetName) then
+      local r, p = tellReality(personalInfo.boss, appliedAtMs)
+      personal[status] = { status=status, boss=personalInfo.boss, row=personalInfo.row, durationS=dur,
+                           appliedAtMs=appliedAtMs, reality=r, tellParam=p }
+      mine[status] = { durationS=dur, appliedAtMs=appliedAtMs }
+    end
   end
 end
 
@@ -225,6 +250,78 @@ local function personalEntry(row)
     end
   end
   return best
+end
+
+-- Resolution words per STATUS and reality. Water and lightning are opposites, as
+-- are inferno and tsunami; bomb and shriek are the same for both classes.
+local CWFL_WORDS  = { ["15A9"] = { real="STACK", fake="SPREAD" }, -- Compressed Water
+                      ["15A8"] = { real="SPREAD", fake="STACK" } } -- Forked Lightning
+local AB_WORDS    = { ["15AA"] = { real="STOP",  fake="MOVE" } }   -- Acceleration Bomb
+local SHRIEK_WORD = { real="LOOK OUT", fake="LOOK IN" }            -- Cursed Shriek (both classes)
+local CHAOS_WORDS = { inferno={ real="OUT", fake="IN" }, tsunami={ real="IN", fake="OUT" } }
+
+-- Which resolution wave does this expiry belong to? Candidates are the party's
+-- applies near this entry's own apply time (other pulls' waves never mix in). The
+-- expiries form exactly two tight clusters — everyone resolves at the same moment,
+-- short-timer debuffs first; anything else is too ambiguous to guess.
+local function waveClass(expireAt, appliedAtMs)
+  local cands = {}
+  for _, e in ipairs(personalWaves) do
+    if math.abs(e.at - appliedAtMs) <= 90000 then cands[#cands+1] = e.expire end
+  end
+  table.sort(cands)
+  local starts, i = {}, 1
+  while i <= #cands do
+    local j = i
+    while j < #cands and cands[j+1] - cands[i] <= 5000 do j = j + 1 end
+    starts[#starts+1] = cands[i]
+    i = j + 1
+  end
+  if #starts ~= 2 then return nil end
+  local boundary = (starts[1] + starts[2]) / 2
+  return expireAt <= boundary and "short" or "long"
+end
+
+-- The six resolution windows, in fixed order. Windows 1 and 4 always come back:
+-- an empty wave means you hold nothing that resolves there, so you stack. Your
+-- water/lightning/bomb words chain with "+" inside their wave. While any of your
+-- debuffs is still unclassifiable (one wave unseen) the defaults are withheld —
+-- we cannot know which window yours would land in.
+local function resolutionSlots()
+  local shortParts, longParts, unresolved = {}, {}, 0
+  for _, ent in pairs(personal) do
+    local map = (ent.row == "ab") and AB_WORDS[ent.status] or CWFL_WORDS[ent.status]
+    local w = ent.reality and map and map[ent.reality]
+    if not w then unresolved = unresolved + 1 else
+      local expireAt = ent.appliedAtMs + math.floor(ent.durationS * 1000 + 0.5)
+      local cls = waveClass(expireAt, ent.appliedAtMs)
+      if cls == "short" then shortParts[#shortParts+1] = w
+      elseif cls == "long" then longParts[#longParts+1] = w
+      else unresolved = unresolved + 1 end
+    end
+  end
+  table.sort(shortParts) -- pairs() order is arbitrary; keep the line deterministic
+  table.sort(longParts)
+
+  local words = {}
+  if #shortParts > 0 then words[1] = table.concat(shortParts, " + ")
+  elseif unresolved == 0 then words[1] = "STACK" end
+  local sm = mechs.csShort
+  if sm and sm.reality then words[2] = SHRIEK_WORD[sm.reality] end
+  local im = mechs.inferno
+  if im and im.reality then words[3] = CHAOS_WORDS.inferno[im.reality] end
+  if #longParts > 0 then words[4] = table.concat(longParts, " + ")
+  elseif unresolved == 0 then words[4] = "STACK" end
+  local lm = mechs.csLong
+  if lm and lm.reality then words[5] = SHRIEK_WORD[lm.reality] end
+  local tm = mechs.tsunami
+  if tm and tm.reality then words[6] = CHAOS_WORDS.tsunami[tm.reality] end
+
+  local out = {}
+  for i = 1, 6 do
+    if words[i] then out[#out+1] = i .. " - " .. words[i] end
+  end
+  return out
 end
 
 local function parseCast(raw)
@@ -323,10 +420,27 @@ onFrame = function(_dt)
   local w, h = canvasWidth(), canvasHeight()
   local nameX = math.floor(w / 2 - PANEL_W / 2)
 
-  -- Center the panel in the viewer area (horizontally and as a vertical block),
-  -- but keep it clear of the top edge: fillText treats y as the baseline.
+  -- Center the whole block (table + resolution lines) in the viewer area, but keep
+  -- it clear of the top edge: fillText treats y as the baseline.
   local title = "DMU P4 - debuff tracker (you: " .. MY_NAME .. ")"
-  local panelH = TITLE_SIZE + 6 + #ROWS * ROW_H + 4 + FOOTER_LINE_H * 2
+  local topH = TITLE_SIZE + 6 + #ROWS * ROW_H + 4 + FOOTER_LINE_H * 2
+  local slots = resolutionSlots()
+  local lineSize, pitch, leftX = 0, 0, 0
+  if #slots > 0 then
+    -- Fill the width for the longest line; share the leftover height across lines.
+    local longest = 0
+    for _, s in ipairs(slots) do
+      if #s > longest then longest = #s end
+    end
+    lineSize = math.floor(w * 0.94 / (longest * 0.62))
+    local perLine = math.floor((h - topH - 18) / (#slots * 1.35))
+    if perLine < lineSize then lineSize = perLine end
+    if lineSize < 24 then lineSize = 24 end
+    pitch = math.floor(lineSize * 1.35)
+    -- Left-align every line on the block's left edge so the window numbers stack up.
+    leftX = math.floor(w / 2 - (longest * lineSize * 0.62) / 2)
+  end
+  local panelH = topH + (#slots > 0 and #slots * pitch or 0)
   local y = math.max(26, math.floor((h - panelH) / 2))
   drawText(title, centerText(w / 2, title, TITLE_SIZE), y, TITLE_SIZE, C_TITLE); y = y + TITLE_SIZE + 6
 
@@ -370,4 +484,10 @@ onFrame = function(_dt)
   end
   table.sort(tellParts)
   drawText("boss tells: " .. (next(tellParts) and table.concat(tellParts, ", ") or "-"), nameX, y, 13, C_INFO)
+
+  -- One huge line per resolution window that still has something to resolve —
+  -- hard to miss at a glance. All lines share the same left edge.
+  for i, s in ipairs(slots) do
+    drawText(s, leftX, y + 16 + (i - 1) * pitch + math.floor(lineSize * 0.9), lineSize, C_ACCENT)
+  end
 end

@@ -57,12 +57,13 @@ function testMixedPullLatestFake() {
 
   const rows = tableRows(mgr);
 
-  // Global rows follow the LATEST round: GC#3's FAKE cast overwrote the REAL shriek
-  // rounds. Inferno stayed [FAKE] even though its Entropy debuffs landed AFTER Chaos's
-  // tell had lifted — the cast stamped it while the tell was still fresh, and a late
-  // apply must not downgrade an already-resolved round to unknown.
-  assert.ok(hasVerdict(rowWith(rows, 'Cursed Shriek (Short)'), '[FAKE]'), `csShort [FAKE]: ${JSON.stringify(rowWith(rows, 'Cursed Shriek (Short)'))}`);
-  assert.ok(hasVerdict(rowWith(rows, 'Cursed Shriek (Long)'), '[FAKE]'), `csLong [FAKE]: ${JSON.stringify(rowWith(rows, 'Cursed Shriek (Long)'))}`);
+  // Shriek rows are stamped per CLASS by the apply lines: the short class landed in
+  // GC#1's round (REAL tell active), the long class in GC#2's round (also REAL).
+  // Inferno stayed [FAKE] even though its Entropy debuffs landed AFTER Chaos's tell
+  // had lifted — the cast stamped it while the tell was still fresh, and a late apply
+  // must not downgrade an already-resolved round to unknown.
+  assert.ok(hasVerdict(rowWith(rows, 'Cursed Shriek (Short)'), '[REAL]'), `csShort [REAL]: ${JSON.stringify(rowWith(rows, 'Cursed Shriek (Short)'))}`);
+  assert.ok(hasVerdict(rowWith(rows, 'Cursed Shriek (Long)'), '[REAL]'), `csLong [REAL]: ${JSON.stringify(rowWith(rows, 'Cursed Shriek (Long)'))}`);
   assert.ok(hasVerdict(rowWith(rows, 'Inferno'), '[FAKE]'), `inferno [FAKE]: ${JSON.stringify(rowWith(rows, 'Inferno'))}`);
   assert.ok(hasVerdict(rowWith(rows, 'Tsunami'), '[REAL]'), `tsunami [REAL]: ${JSON.stringify(rowWith(rows, 'Tsunami'))}`);
 
@@ -93,6 +94,20 @@ function testMixedPullLatestFake() {
   assert.ok(tellLine, 'tell line drawn');
   assert.ok(tellLine.some((c) => c.text.includes('Neo Exdeath fake p=1121')), `NE fake tell shown: ${JSON.stringify(tellLine)}`);
   assert.ok(!tellLine.some((c) => c.text.includes('Chaos')), `chaos tell removed: ${JSON.stringify(tellLine)}`);
+
+  // Wave classification (slots 1/4) needs real wall-clock spacing between the two
+  // bursts; this harness delivers everything in milliseconds so both waves' expiries
+  // collapse to four distinct values and the personal slots stay hidden. The global
+  // rows still resolve their words, so only the shriek/inferno/tsunami windows show.
+  assert.deepEqual(
+    slotLines(mgr).map(({ text, color }) => ({ text, color })),
+    [
+      { text: '2 - LOOK OUT', color: '#ffd24c' },   // csShort REAL
+      { text: '3 - IN', color: '#ffd24c' },         // inferno FAKE
+      { text: '5 - LOOK OUT', color: '#ffd24c' },   // csLong REAL
+      { text: '6 - IN', color: '#ffd24c' },         // tsunami REAL
+    ],
+    `pull-1 slots under compressed replay time: ${JSON.stringify(slotLines(mgr))}`);
 }
 
 function testMixedPullLatestReal() {
@@ -103,9 +118,10 @@ function testMixedPullLatestReal() {
 
   const rows = tableRows(mgr);
 
-  // Globals follow the LATEST round: GC#3's REAL cast overwrote GC#2's FAKE one.
+  // Shriek rows are stamped per CLASS by the apply lines: short landed in GC#1's
+  // round (REAL tell active), long in GC#2's round (FAKE tell active).
   assert.ok(hasVerdict(rowWith(rows, 'Cursed Shriek (Short)'), '[REAL]'), `csShort [REAL]: ${JSON.stringify(rowWith(rows, 'Cursed Shriek (Short)'))}`);
-  assert.ok(hasVerdict(rowWith(rows, 'Cursed Shriek (Long)'), '[REAL]'), `csLong [REAL]: ${JSON.stringify(rowWith(rows, 'Cursed Shriek (Long)'))}`);
+  assert.ok(hasVerdict(rowWith(rows, 'Cursed Shriek (Long)'), '[FAKE]'), `csLong [FAKE]: ${JSON.stringify(rowWith(rows, 'Cursed Shriek (Long)'))}`);
   assert.ok(hasVerdict(rowWith(rows, 'Inferno'), '[FAKE]'), `inferno [FAKE]: ${JSON.stringify(rowWith(rows, 'Inferno'))}`);
   assert.ok(hasVerdict(rowWith(rows, 'Tsunami'), '[REAL]'), `tsunami [REAL]: ${JSON.stringify(rowWith(rows, 'Tsunami'))}`);
 
@@ -134,7 +150,155 @@ function testMixedPullLatestReal() {
   assert.ok(tellLine, 'tell line drawn (pull 2)');
   assert.ok(tellLine.some((c) => c.text.includes('Neo Exdeath real p=1122')), `NE real tell shown: ${JSON.stringify(tellLine)}`);
   assert.ok(!tellLine.some((c) => c.text.includes('Chaos')), `chaos tell removed: ${JSON.stringify(tellLine)}`);
+
+  // Same compressed-time caveat as pull 1: personal slots stay hidden, but the
+  // global rows resolve — here both shriek classes plus both Chaos rounds.
+  assert.deepEqual(
+    slotLines(mgr).map(({ text, color }) => ({ text, color })),
+    [
+      { text: '2 - LOOK OUT', color: '#ffd24c' },   // csShort REAL
+      { text: '3 - IN', color: '#ffd24c' },         // inferno FAKE
+      { text: '5 - LOOK IN', color: '#ffd24c' },    // csLong FAKE
+      { text: '6 - IN', color: '#ffd24c' },         // tsunami REAL
+    ],
+    `pull-2 slots under compressed replay time: ${JSON.stringify(slotLines(mgr))}`);
 }
+
+// --- resolution slots -----------------------------------------------------------
+// The six resolution windows render as huge lines under the table. Windows 1/4 are
+// always drawn (STACK when you hold nothing in that wave); their personal word needs
+// wave classification, which needs both of the party's waves observed — one
+// other-player apply on the opposite wave is enough to pin it down.
+function slotLines(mgr) {
+  const ops = mgr.scenes()[0].scene.filter((o) => o.type === 'text');
+  return ops.filter((o) => o.size >= 24).sort((a, b) => a.y - b.y)
+    .map((o) => ({ text: o.text, color: o.color, size: o.size, x: o.x }));
+}
+
+const tellNE = (p) => `26|2026-09-17T21:00:00.0000000-04:00|808|Unknown_808|9999.00|E0000000||400250AA|Neo Exdeath|${p}|188300||tellne`;
+const tellChaos = (p) => `26|2026-09-17T21:00:00.0000000-04:00|808|Unknown_808|9999.00|E0000000||400250AB|Chaos|${p}|188300||tellch`;
+const applyTo = (id, name, status, label, dur) => `26|2026-09-17T21:00:01.0000000-04:00|${status}|${label}|${dur}.00|E0000000||${id}|${name}|00|204515||aaaa`;
+const applyToMe = (status, label, dur) => applyTo('10020C04', 'Minda Silva', status, label, dur);
+const removeMine = (status, name) => `30|2026-09-17T21:00:05.0000000-04:00|${status}|${name}|0.00|E0000000||10020C04|Minda Silva||||gone`;
+
+function freshMgr() {
+  const m = new LuaManager(() => [1280, 720]);
+  assert.equal(m.add('dmu-p4-debuffs.lua', code).ok, true);
+  return m;
+}
+
+// Per-status reality maps: water/lightning are opposites, inferno/tsunami are
+// opposites; bomb and shriek resolve the same for both classes. Each case puts
+// Minda's debuff in a known wave (30s = short, 69/75s = long) via an opposite-wave apply.
+function testSlotMaps() {
+  const OTHER_SHORT = () => applyTo('100F612E', 'Mr Toxic', '15AA', 'Acceleration Bomb', 30);
+  const OTHER_LONG = () => applyTo('100F612E', 'Mr Toxic', '15A8', 'Forked Lightning', 75);
+  // Windows 1 and 4 are always present: her word in the wave she holds, STACK in
+  // the empty one. Shriek/Chaos cases carry no personal debuff at all, so both
+  // windows default to STACK as well.
+  const cases = [
+    ['ne', '460', '15A9', 'Compressed Water', 30, OTHER_LONG, ['1 - STACK', '4 - STACK']],       // water REAL short
+    ['ne', '461', '15A9', 'Compressed Water', 30, OTHER_LONG, ['1 - SPREAD', '4 - STACK']],      // water FAKE short
+    ['ne', '460', '15A8', 'Forked Lightning', 75, OTHER_SHORT, ['1 - STACK', '4 - SPREAD']],     // lightning REAL long
+    ['ne', '461', '15A8', 'Forked Lightning', 30, OTHER_LONG, ['1 - STACK', '4 - STACK']],       // lightning FAKE short
+    ['ne', '460', '15AA', 'Acceleration Bomb', 75, OTHER_SHORT, ['1 - STACK', '4 - STOP']],      // bomb REAL long
+    ['ne', '461', '15AA', 'Acceleration Bomb', 30, OTHER_LONG, ['1 - MOVE', '4 - STACK']],       // bomb FAKE short
+    ['ne', '460', '15A7', 'Cursed Shriek', 60, null, ['1 - STACK', '2 - LOOK OUT', '4 - STACK']],// shriek REAL (short class)
+    ['ne', '461', '15A7', 'Cursed Shriek', 69, null, ['1 - STACK', '4 - STACK', '5 - LOOK IN']], // shriek FAKE (long class)
+    ['chaos', '460', '15AB', 'Entropy', 45, null, ['1 - STACK', '3 - OUT', '4 - STACK']],        // inferno REAL
+    ['chaos', '461', '15AB', 'Entropy', 45, null, ['1 - STACK', '3 - IN', '4 - STACK']],         // inferno FAKE
+    ['chaos', '460', '15AC', 'Dynamic Fluid', 84, null, ['1 - STACK', '4 - STACK', '6 - IN']],   // tsunami REAL (opposite of inferno)
+    ['chaos', '461', '15AC', 'Dynamic Fluid', 84, null, ['1 - STACK', '4 - STACK', '6 - OUT']],  // tsunami FAKE
+  ];
+  for (const [boss, p, status, label, dur, otherApply, expected] of cases) {
+    const m = freshMgr();
+    m.onLogLine(boss === 'ne' ? tellNE(p) : tellChaos(p));
+    if (otherApply) m.onLogLine(otherApply());
+    m.onLogLine(applyToMe(status, label, dur));
+    m.frame(1 / 60);
+    const lines = slotLines(m);
+    assert.deepEqual(lines.map((l) => l.text), expected, `${label} (${boss}, p=${p}): ${JSON.stringify(lines)}`);
+    for (const l of lines) assert.equal(l.color, '#ffd24c', `slot line accent color: ${l.text}`);
+    // Every window shares the same left edge so the numbers line up.
+    assert.equal(new Set(lines.map((l) => l.x)).size, 1, `shared left edge for ${label}: ${JSON.stringify(lines)}`);
+  }
+}
+
+testSlotMaps();
+
+// The exact scenario from the spec: Minda holds a short FAKE bomb, a long REAL
+// water and a long FAKE shriek; globally the short shriek is REAL and both Chaos
+// rounds are REAL. All six windows resolve at once.
+function testUserExample() {
+  const m = freshMgr();
+  // FAKE round: her short-timer bomb + long shriek land under it, plus one other
+  // player's short-wave debuff so the wave split is observable.
+  m.onLogLine(tellNE('461'));
+  m.onLogLine(applyToMe('15AA', 'Acceleration Bomb', 30));
+  m.onLogLine(applyTo('100F612E', 'Mr Toxic', '15A9', 'Compressed Water', 30));
+  m.onLogLine(applyToMe('15A7', 'Cursed Shriek', 69));
+  // REAL round: her long-timer water + another player's long-wave debuff; the
+  // short shriek is REAL globally (on someone else).
+  m.onLogLine(tellNE('460'));
+  m.onLogLine(applyToMe('15A9', 'Compressed Water', 75));
+  m.onLogLine(applyTo('100F612E', 'Mr Toxic', '15AA', 'Acceleration Bomb', 75));
+  m.onLogLine(applyTo('AAAA0001', 'Someone Else', '15A7', 'Cursed Shriek', 60));
+  // Both Chaos rounds are REAL.
+  m.onLogLine(tellChaos('460'));
+  m.onLogLine(applyToMe('15AB', 'Entropy', 45));
+  m.onLogLine(applyToMe('15AC', 'Dynamic Fluid', 84));
+  m.frame(1 / 60);
+
+  assert.deepEqual(slotLines(m).map((l) => l.text), [
+    '1 - MOVE',       // her FAKE bomb, short wave
+    '2 - LOOK OUT',   // short shriek REAL
+    '3 - OUT',        // inferno REAL
+    '4 - STACK',      // her REAL water, long wave (real water = stack)
+    '5 - LOOK IN',    // long shriek FAKE
+    '6 - IN',         // tsunami REAL
+  ]);
+}
+
+testUserExample();
+
+// A resolved debuff drops its line on removal; with only one wave observed the
+// personal slots stay hidden rather than guess, and with no tells nothing draws.
+function testSlotRemovalAndAmbiguity() {
+  const m = freshMgr();
+  // One REAL round; she holds a water in the short wave and a bomb in the long one.
+  m.onLogLine(tellNE('460'));
+  m.onLogLine(applyToMe('15A9', 'Compressed Water', 30));
+  m.onLogLine(applyTo('100F612E', 'Mr Toxic', '15AA', 'Acceleration Bomb', 30));
+  m.onLogLine(applyToMe('15AA', 'Acceleration Bomb', 75));
+  m.onLogLine(applyTo('100F612E', 'Mr Toxic', '15A8', 'Forked Lightning', 75));
+  m.frame(1 / 60);
+  assert.deepEqual(slotLines(m).map((l) => l.text), [
+    '1 - STACK', // her REAL water, short wave
+    '4 - STOP',  // her REAL bomb, long wave
+  ]);
+
+  // Resolving her bomb (own removal line): the 4th window becomes a plain stack.
+  m.onLogLine(removeMine('15AA', 'Acceleration Bomb'));
+  m.frame(1 / 60);
+  assert.deepEqual(slotLines(m).map((l) => l.text), ['1 - STACK', '4 - STACK']);
+
+  // Everyone on the same timer -> one expiry cluster -> wave unknown. Her debuff is
+  // unclassifiable, so no word AND no default stack may be guessed in either window.
+  const bare = freshMgr();
+  bare.onLogLine(tellNE('460'));
+  bare.onLogLine(applyToMe('15A9', 'Compressed Water', 30));
+  bare.onLogLine(applyTo('100F612E', 'Mr Toxic', '15AA', 'Acceleration Bomb', 30));
+  bare.frame(1 / 60);
+  assert.deepEqual(slotLines(bare), [], 'single observed wave -> no personal slots');
+
+  // No tell at all: nothing is resolved, so no slot lines.
+  const none = freshMgr();
+  none.onLogLine(applyToMe('15A9', 'Compressed Water', 30));
+  none.frame(1 / 60);
+  assert.deepEqual(slotLines(none), [], 'no tells -> no resolution lines');
+}
+
+testSlotRemovalAndAmbiguity();
 
 testMixedPullLatestFake();
 testMixedPullLatestReal();
