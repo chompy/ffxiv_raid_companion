@@ -20,7 +20,18 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
-      - uses: peaceiris/action-gh-pages@v4
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: dist
+      # Publish dist/ as the entire gh-pages branch. No third-party deploy
+      # action: a fresh orphan commit force-pushed each time keeps it simple.
+      - name: Deploy to GitHub Pages
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          TMP=$(mktemp -d)
+          cp -r dist/. "$TMP/site"
+          git -C "$TMP/site" init -b gh-pages
+          git -C "$TMP/site" add -A
+          git -C "$TMP/site" commit -m "Publish ${GITHUB_SHA:0:7}"
+          git -C "$TMP/site" remote add origin \
+            "https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git"
+          git -C "$TMP/site" push --force origin gh-pages
