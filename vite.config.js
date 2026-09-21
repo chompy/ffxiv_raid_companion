@@ -46,6 +46,8 @@ const fengariEsbuildPlugin = {
 };
 
 export default defineConfig({
+  // GitHub Pages serves this project page under /ffxiv_raid_companion/.
+  base: '/ffxiv_raid_companion/',
   plugins: [forceFengariBrowserBranches()],
   resolve: {
     alias: {
