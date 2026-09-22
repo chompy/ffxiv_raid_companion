@@ -33,6 +33,20 @@ const combatTimeEl = document.getElementById('combat-time');
 const combatStateEl = document.getElementById('combat-state');
 const appEl = document.getElementById('app');
 const sidebarToggle = document.getElementById('sidebar-toggle');
+
+// Player name persists across reloads: the type-02 line only arrives on zone
+// entry, so a refresh mid-session would otherwise leave the bar showing "—".
+const PLAYER_KEY = 'ffxiv-raid-viewer-player-name';
+function setPlayerName(name) {
+  playerNameEl.textContent = name;
+  try {
+    localStorage.setItem(PLAYER_KEY, name);
+  } catch { /* private mode — just don't persist */ }
+}
+try {
+  const storedPlayer = localStorage.getItem(PLAYER_KEY);
+  if (storedPlayer) playerNameEl.textContent = storedPlayer;
+} catch { /* no storage */ }
 const connStatusEl = document.getElementById('conn-status');
 const msgCountEl = document.getElementById('msg-count');
 const wsUrlInput = document.getElementById('ws-url');
@@ -121,7 +135,7 @@ function deliverLine(parsed, rawLine) {
     }
   } else if (parsed.type === LineType.PlayerName) {
     const playerName = parsed.fields[1];
-    if (playerName) playerNameEl.textContent = playerName;
+    if (playerName) setPlayerName(playerName);
   }
 
   luaManager.onLogLine(rawLine);
