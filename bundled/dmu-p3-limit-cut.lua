@@ -249,6 +249,14 @@ function onChangeZone()
     reset()
 end
 
+-- A re-pull in the SAME zone never fires onChangeZone, and the 60s stale window is
+-- easily crossed by a fast re-pull after a wipe. Without this, fight N's latched
+-- north/rotation survives into fight N+1 — and recycled entity ids plus the per-combat
+-- ability-sequence reset make seenKeys silently drop fight N+1's casts entirely.
+function onCombatStart()
+    reset()
+end
+
 -- --- display -------------------------------------------------------------------
 local function centerText(cx, text, size)
     return cx - #text * size * 0.62 / 2

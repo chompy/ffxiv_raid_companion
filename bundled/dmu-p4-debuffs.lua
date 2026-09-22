@@ -105,8 +105,11 @@ function resetAll()
   lastActivityMs = nil
 end
 
-onChangeZone = function(_zone) resetAll() end
-onCombatEnd  = function(_result, _elapsedMs) resetAll() end
+-- onCombatStart covers the case where a fight ends without a defeat/victory line we
+-- see (stream hiccup): every new pull starts from clean state regardless.
+onChangeZone    = function(_zone) resetAll() end
+onCombatEnd     = function(_result, _elapsedMs) resetAll() end
+onCombatStart   = function() resetAll() end
 
 local function nowMs() return math.floor(now() * 1000 + 0.5) end
 

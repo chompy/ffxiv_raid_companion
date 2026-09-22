@@ -430,4 +430,16 @@ await new Promise((resolve) => setTimeout(resolve, 90)); // outlast the shrunken
 clearMgr.frame(1 / 60);
 assert.equal(tableRows(clearMgr).length, 0, 'cleared after idle window elapses');
 
+// --- combat-start reset --------------------------------------------------------
+// A re-pull in the same zone fires onCombatStart (never onChangeZone); if a fight's
+// defeat/victory line is missing from the stream, this is what keeps state clean.
+const startMgr = new LuaManager(() => [1280, 720]);
+assert.equal(startMgr.add('dmu-p4-debuffs.lua', code).ok, true);
+startMgr.onLogLine('26|2026-09-14T23:50:00.0000000-04:00|808|Unknown_808|9999.00|E0000000||400250AA|Neo Exdeath|460|188300||deadbeef');
+startMgr.frame(1 / 60);
+assert.ok(tableRows(startMgr).length > 0, 'tracker shown while mechanic active');
+startMgr.onCombatStart();
+startMgr.frame(1 / 60);
+assert.equal(tableRows(startMgr).length, 0, 'cleared on combat start (same-zone re-pull)');
+
 console.log('dmu-debuffs tests passed');

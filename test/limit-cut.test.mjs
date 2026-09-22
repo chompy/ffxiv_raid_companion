@@ -83,6 +83,34 @@ mgr.onChangeZone('The Lavender Beds');
 mgr.frame(1 / 60);
 assert.deepEqual(sceneTexts(mgr), [], 'cleared after zone change');
 
+// --- Combat-start reset: a re-pull in the SAME zone must start fresh --------------
+// Wipe + fast re-pull fires onCombatStart, never onChangeZone. Without that hook the
+// latched table from fight 1 survives into fight 2 — and recycled entity ids plus the
+// per-combat ability-sequence reset make seenKeys silently drop fight-2 casts outright.
+const repMgr = new LuaManager(() => [1280, 720]);
+assert.equal(repMgr.add('dmu-p3-limit-cut.lua', code).ok, true);
+repMgr.onLogLine(CAST_A); // (120,100) = E → north W
+repMgr.onLogLine(CAST_B); // NE of E → CW resolved, table latched
+repMgr.frame(1 / 60);
+assert.ok(sceneTexts(repMgr).includes('D (W)') && sceneTexts(repMgr).includes('Rotate CW'));
+
+const f2seq = CAST_A.split('|')[44]; // same global sequence fight 1 used
+repMgr.onCombatStart(); // wipe + re-pull without leaving the instance
+// Fight-2 first cast: recycled caster id AND sequence (the dedupe collision), but a new
+// position — W → new north E. Must re-resolve, not keep showing the stale table.
+const FIGHT2_A = cloneLine('4001694D', f2seq, 88, 100);
+repMgr.onLogLine(FIGHT2_A);
+repMgr.frame(1 / 60);
+// The rose always draws all eight ring labels (size 22); only the highlighted new-north
+// label (40) and readout text (64) indicate which direction is latched.
+const highlighted = repMgr.scenes()[0].scene
+  .filter((op) => op.type === 'text' && op.size >= 40)
+  .map((op) => op.text);
+assert.ok(highlighted.includes('B (E)'), `fight-2 cast re-resolves north after reset: ${highlighted.join(', ')}`);
+assert.ok(!highlighted.includes('D (W)'), 'stale fight-1 north no longer highlighted');
+let rep = sceneTexts(repMgr);
+assert.ok(rep.includes('waiting for second clone...'), 'rotation pending again after reset');
+
 // --- CCW case reproducing a real raid macro example ----------------------------
 // Ground truth from the team's in-game macro for new north '2' (NE) + CCW:
 //   1 -> A2, 2 -> 1A, 3 -> D1, 4 -> 4D, 5 -> C4, 6 -> 3C, 7 -> B3, 8 -> 2B
