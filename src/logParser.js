@@ -9,7 +9,8 @@
 
 export const LineType = {
   LogMessage: 0x00, // "00" — in-game log message; the message code is fields[0]
-  ChangeZone: 0x01, // "01"
+  ChangeZone: 0x01, // "01" — fields[0] zone id, fields[1] zone name
+  PlayerName: 0x02, // "02" — own player id + name (emitted on zone entry)
   NetworkAbility: 0x15, // "21"
   NetworkAOEAbility: 0x16, // "22"
   NetworkDeath: 0x19, // "25"

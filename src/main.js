@@ -27,8 +27,12 @@ function cssCanvasSize() {
 const luaManager = new LuaManager(cssCanvasSize);
 
 // --- DOM refs -----------------------------------------------------------
+const playerNameEl = document.getElementById('player-name');
+const zoneNameEl = document.getElementById('zone-name');
 const combatTimeEl = document.getElementById('combat-time');
 const combatStateEl = document.getElementById('combat-state');
+const appEl = document.getElementById('app');
+const sidebarToggle = document.getElementById('sidebar-toggle');
 const connStatusEl = document.getElementById('conn-status');
 const msgCountEl = document.getElementById('msg-count');
 const wsUrlInput = document.getElementById('ws-url');
@@ -111,7 +115,13 @@ function deliverLine(parsed, rawLine) {
 
   if (parsed.type === LineType.ChangeZone) {
     const zoneName = parsed.fields[1];
-    if (zoneName) luaManager.onChangeZone(zoneName);
+    if (zoneName) {
+      zoneNameEl.textContent = zoneName;
+      luaManager.onChangeZone(zoneName);
+    }
+  } else if (parsed.type === LineType.PlayerName) {
+    const playerName = parsed.fields[1];
+    if (playerName) playerNameEl.textContent = playerName;
   }
 
   luaManager.onLogLine(rawLine);
@@ -482,7 +492,34 @@ function frame(ts) {
   requestAnimationFrame(frame);
 }
 
-window.addEventListener('resize', resizeCanvas);
+// A ResizeObserver (rather than a window resize listener) so the canvas
+// re-fits when the sidebar collapses, not just when the browser resizes.
+new ResizeObserver(resizeCanvas).observe(canvas.parentElement);
 resizeCanvas();
+
+// --- Sidebar collapse ------------------------------------------------------
+
+const SIDEBAR_KEY = 'ffxiv-raid-viewer-sidebar-collapsed';
+
+function setSidebarCollapsed(collapsed) {
+  appEl.classList.toggle('sidebar-collapsed', collapsed);
+  sidebarToggle.textContent = collapsed ? '\u25B6' : '\u25C0'; // ▶ / ◀
+  sidebarToggle.title = collapsed ? 'Expand sidebar' : 'Collapse sidebar';
+  sidebarToggle.setAttribute('aria-expanded', String(!collapsed));
+  try {
+    localStorage.setItem(SIDEBAR_KEY, collapsed ? '1' : '0');
+  } catch { /* private mode — state just won't persist */ }
+}
+
+sidebarToggle.addEventListener('click', () => {
+  setSidebarCollapsed(!appEl.classList.contains('sidebar-collapsed'));
+});
+
+let storedCollapsed = false;
+try {
+  storedCollapsed = localStorage.getItem(SIDEBAR_KEY) === '1';
+} catch { /* no storage */ }
+setSidebarCollapsed(storedCollapsed);
+
 renderTimer();
 requestAnimationFrame(frame);

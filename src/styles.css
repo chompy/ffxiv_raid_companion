@@ -31,8 +31,78 @@ body {
 
 #app {
   display: flex;
+  flex-direction: column;
   height: 100vh;
   overflow: hidden;
+}
+
+/* --- Status bar (top) --------------------------------------------------- */
+
+#status-bar {
+  flex: none;
+  height: 50px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 14px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--panel-border);
+  font-size: 14px;
+}
+
+#sidebar-toggle {
+  flex: none;
+  padding: 5px 9px;
+  font-size: 10px;
+  line-height: 1;
+}
+
+.bar-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.bar-label {
+  color: var(--text-dim);
+  font-size: 13px;
+}
+
+#player-name,
+#zone-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bar-sep {
+  color: #3d445e;
+  user-select: none;
+}
+
+#combat-readout {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.readout-sep {
+  color: var(--text-dim);
+}
+
+/* --- Content row (sidebar + viewer) ------------------------------------- */
+
+#content-row {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+#app.sidebar-collapsed #sidebar {
+  display: none;
 }
 
 /* --- Sidebar ---------------------------------------------------------- */
@@ -88,15 +158,12 @@ hr {
 
 #combat-time {
   font-family: 'Cascadia Mono', 'JetBrains Mono', monospace;
-  font-size: 44px;
-  line-height: 1.1;
-  text-align: center;
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
   color: var(--text);
 }
 
 #combat-state {
-  margin-top: 6px;
-  text-align: center;
   font-size: 13px;
   letter-spacing: 0.05em;
   color: var(--text-dim);
