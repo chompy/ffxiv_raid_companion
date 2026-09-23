@@ -10,6 +10,9 @@
 //     drawRectangle(), now(), canvasWidth(), canvasHeight(). Drawing calls push
 //     ops into a per-script scene list; main.js replays every scene onto the
 //     <canvas> once per animation frame.
+//   - takeoverCanvas(bool): while true, ONLY this script's scene is replayed —
+//     other scripts keep running (their scenes update) but are not drawn until
+//     it is released. For displays that should own the whole canvas for a phase.
 //   - Callback globals they may define: onLogLine(raw), onChangeZone(name),
 //     onCombatStart(), onCombatEnd(result, elapsedMs), onFrame(dtSeconds).
 
@@ -45,6 +48,7 @@ export class LuaScript {
     this.name = name;
     this.scene = [];
     this.lastError = null;
+    this.takeover = false;
     this._getCanvasSize = getCanvasSize;
 
     const L = lauxlib.luaL_newstate();
@@ -112,15 +116,22 @@ export class LuaScript {
       lua.lua_pushnumber(L, Date.now() / 1000);
       return 1;
     });
-
     // Canvas size is read live at call time via a closure over the getter.
     setGlobal('canvasWidth', () => {
       lua.lua_pushnumber(L, this._getCanvasSize()[0]);
       return 1;
     });
+
     setGlobal('canvasHeight', () => {
       lua.lua_pushnumber(L, this._getCanvasSize()[1]);
       return 1;
+    });
+
+    // Omitted arg is out-of-stack (type NONE), not nil — treat as false.
+    // (This fengari build has no luaL_checkboolean.)
+    setGlobal('takeoverCanvas', (L) => {
+      this.takeover = lua.lua_gettop(L) >= 1 && Boolean(lua.lua_toboolean(L, 1));
+      return 0;
     });
   }
 
@@ -144,6 +155,7 @@ export class LuaScript {
 
   dispose() {
     this.L = null;
+    this.takeover = false;
     this.scene.length = 0;
   }
 }
@@ -196,9 +208,15 @@ export class LuaManager {
     }));
   }
 
-  /** Scenes of the enabled scripts, in load order, for the renderer to replay. */
+  /** Scenes of the enabled scripts, in load order, for the renderer to replay.
+   *  While one of them holds a canvas takeover, only its scene is returned —
+   *  the others keep running but stay off the display until it is released. */
   scenes() {
-    return this._scripts.filter(({ enabled }) => enabled).map(({ script }) => ({ name: script.name, scene: script.scene }));
+    const list = this._scripts.filter(({ enabled }) => enabled);
+    for (const entry of list) {
+      if (entry.script.takeover) return [{ name: entry.script.name, scene: entry.script.scene }];
+    }
+    return list.map(({ script }) => ({ name: script.name, scene: script.scene }));
   }
 
   onLogLine(raw) {
