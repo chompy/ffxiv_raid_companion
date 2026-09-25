@@ -8,7 +8,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node test/combat-timer.test.mjs && node test/lua-engine.test.mjs && node test/limit-cut.test.mjs && node test/blackhole.test.mjs && node test/dmu-debuffs.test.mjs && node test/seq-gap.test.mjs && node test/replay-check.mjs"
+    "test": "node test/combat-timer.test.mjs && node test/lua-engine.test.mjs && node test/limit-cut.test.mjs && node test/blackhole.test.mjs && node test/forsaken.test.mjs && node test/dmu-debuffs.test.mjs && node test/seq-gap.test.mjs && node test/replay-check.mjs"
   },
   "devDependencies": {
     "vite": "^6.0.0"
