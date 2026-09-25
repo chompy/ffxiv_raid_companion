@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/svg+xml" href="/ffxiv_raid_companion/favicon.svg" />
+    <title>FFXIV Raid Companion</title>
+    <script type="module" crossorigin src="/ffxiv_raid_companion/assets/index-ikjNnzqt.js"></script>
+    <link rel="stylesheet" crossorigin href="/ffxiv_raid_companion/assets/index-mhbYOZvr.css">
+  </head>
+  <body>
+    <div id="app">
+      <header id="status-bar">
+        <button id="sidebar-toggle" aria-expanded="true" title="Collapse sidebar">&#9664;</button>
+        <span class="bar-field"><span class="bar-label">Player:</span><span id="player-name">&mdash;</span></span>
+        <span class="bar-sep">|</span>
+        <span class="bar-field"><span class="bar-label">Zone:</span><span id="zone-name">&mdash;</span></span>
+        <div id="combat-readout" aria-live="off">
+          <span id="combat-state" data-state="idle">Idle</span>
+          <span class="readout-sep">--</span>
+          <span id="combat-time">0:00.0</span>
+        </div>
+      </header>
+
+      <div id="content-row">
+        <aside id="sidebar">
+          <section class="panel" id="connection-panel">
+            <h2>IINACT Connection</h2>
+            <label for="ws-url">WebSocket URL</label>
+            <input id="ws-url" type="text" spellcheck="false" value="ws://127.0.0.1:10501/ws" />
+            <div class="row">
+              <button id="connect-btn" class="primary">Connect</button>
+              <span id="conn-status" data-state="disconnected">Disconnected</span>
+              <span id="msg-count"></span>
+            </div>
+
+            <hr />
+
+            <h3>Replay log file (offline test)</h3>
+            <label for="log-file" class="file-btn">
+              <input id="log-file" type="file" accept=".log,.txt,text/plain" hidden />
+              <span id="file-label">Choose a Network_*.log</span>
+            </label>
+            <div class="row">
+              <label for="replay-speed">Speed</label>
+              <select id="replay-speed">
+                <option value="0.5">0.5×</option>
+                <option value="1" selected>1×</option>
+                <option value="2">2×</option>
+                <option value="4">4×</option>
+                <option value="8">8×</option>
+              </select>
+            </div>
+            <div class="row">
+              <button id="replay-btn" disabled>Replay</button>
+              <span id="replay-status"></span>
+            </div>
+          </section>
+
+          <section class="panel" id="scripts-panel">
+            <h2>Lua Scripts</h2>
+            <label for="lua-file" class="file-btn">
+              <input id="lua-file" type="file" accept=".lua,text/plain" multiple hidden />
+              <span>Add .lua files…</span>
+            </label>
+            <ul id="script-list"></ul>
+            <div id="lua-error" hidden></div>
+          </section>
+
+          <section class="panel grow" id="event-panel">
+            <h2>Combat Events</h2>
+            <ul id="event-list"></ul>
+          </section>
+        </aside>
+
+        <main id="viewer">
+          <canvas id="draw-canvas"></canvas>
+        </main>
+      </div>
+    </div>
+  </body>
+</html>
