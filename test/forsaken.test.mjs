@@ -12,17 +12,18 @@ const code = readFileSync(path.join(here, '..', 'bundled', 'dmu-p2-forsaken.lua'
 // full-party wave. Group A (Abnar/Cora/Torn/Zephyra) gets several waves in a row;
 // Minda Silva is in group B and receives NO marker during those — her display must
 // keep her last icon while the set counter keeps climbing.
+// Ids are 8 hex digits like real player entity ids (the script filters on that).
 const GROUP_A = [
-  ['100A01', 'Abnar Fae'],
-  ['100A02', 'Cora Fenix'],
-  ['100A03', 'Torn Amo'],
-  ['100A04', 'Zephyra Hana'],
+  ['100A0101', 'Abnar Fae'],
+  ['100A0202', 'Cora Fenix'],
+  ['100A0303', 'Torn Amo'],
+  ['100A0404', 'Zephyra Hana'],
 ];
 const GROUP_B = [
-  ['100B01', 'Erynd Altansarr'],
-  ['100B02', 'Hendrick Sands'],
+  ['100B0101', 'Erynd Altansarr'],
+  ['100B0202', 'Hendrick Sands'],
   ['10020C04', 'Minda Silva'],
-  ['100B03', 'Vittorio Dravorn'],
+  ['100B0303', 'Vittorio Dravorn'],
 ];
 
 // Type-27 marker assignment lines: field 3 target id, field 4 target name,
@@ -195,6 +196,120 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   await new Promise((r) => setTimeout(r, 30));
   mgr.frame(1 / 60);
   assert.ok(sceneTexts(mgr).includes('PAST'), `cast refreshes the fade window, got: ${sceneTexts(mgr).join(', ')}`);
+}
+
+// IINACT entity state lines (code 261): Add snapshots / Change updates as key|value
+// pairs; field 4 is the id, trailing uid. PosX/PosY feed the closest-player lookup.
+function posLine(id, name, x, y) {
+  return `261|2026-09-19T19:49:40.0000000-04:00|Add|${id}|Name|${name}|PosX|${x}|PosY|${y}|Type|1|deadbeef00000001`;
+}
+
+// Real-pull geometry from the 2026-09-19 DMU log (arena coords): Vittorio stands
+// ~2.8m next to Minda; everyone else is farther away, so he must win the lookup.
+const POSITIONS = [
+  ['100A0101', 'Abnar Fae', 97.6399, 96.8979],
+  ['100A0202', 'Cora Fenix', 104.9668, 108.5984],
+  ['100A0303', 'Torn Amo', 105.2867, 106.0138],
+  ['100A0404', 'Zephyra Hana', 97.0625, 99.8092],
+  ['100B0101', 'Erynd Altansarr', 105.5840, 101.0017],
+  ['100B0202', 'Hendrick Sands', 107.4868, 99.2599],
+  ['10020C04', 'Minda Silva', 93.5834, 103.4361],
+  ['100B0303', 'Vittorio Dravorn', 96.3607, 103.3798],
+];
+
+// Shrink the synthetic-set-8 delay along with the new-set gap for test timing.
+const groupCode = code
+  .replace('local NEW_SET_GAP_MS = 5000', 'local NEW_SET_GAP_MS = 30')
+  .replace('local EIGHT_DELAY_MS = 10000', 'local EIGHT_DELAY_MS = 80');
+
+// IN/OUT groups: closest player shares Minda's icon (SPREAD) -> OUT for sets 1-3,
+// the swap lands with set 4, and ~EIGHT_DELAY after set 7 the counter advances to a
+// synthetic set 8 and swaps back.
+{
+  const mgr = new LuaManager(() => [1280, 720]);
+  assert.equal(mgr.add('dmu-p2-forsaken.lua', groupCode).ok, true);
+
+  for (const [id, name, x, y] of POSITIONS) mgr.onLogLine(posLine(id, name, x, y));
+
+  const set1Ids = { 'Abnar Fae': '02CB', 'Cora Fenix': '02CD', 'Torn Amo': '02CB', 'Zephyra Hana': '02CC', 'Erynd Altansarr': '02CD', 'Hendrick Sands': '02CD', 'Minda Silva': '02CC', 'Vittorio Dravorn': '02CC' };
+  let n = 0;
+  for (const [id, name] of [...GROUP_A, ...GROUP_B]) {
+    mgr.onLogLine(markerLine(id, name, set1Ids[name], `uid-grp-${++n}`));
+  }
+  mgr.frame(1 / 60);
+  let texts = sceneTexts(mgr);
+  assert.ok(texts.includes('1 SPREAD OUT'), `closest player shares your icon -> OUT, got: ${texts.join(', ')}`);
+
+  for (let wave = 2; wave <= 3; wave++) {
+    await sleep(60); // ~10s between real waves
+    n = 0;
+    for (const [id, name] of GROUP_A) {
+      mgr.onLogLine(markerLine(id, name, '02CD', `uid-grp${wave}-${++n}`));
+    }
+    mgr.frame(1 / 60);
+    texts = sceneTexts(mgr);
+    assert.ok(texts.includes(`${wave} SPREAD OUT`), `group holds through your skip-waves: ${texts.join(', ')}`);
+  }
+
+  // Set 4 marks group B — the swap lands with it, and Minda receives CONE.
+  await sleep(60);
+  n = 0;
+  for (const [id, name] of GROUP_B) {
+    mgr.onLogLine(markerLine(id, name, '02CD', `uid-grpc-${++n}`));
+  }
+  mgr.frame(1 / 60);
+  texts = sceneTexts(mgr);
+  assert.ok(texts.includes('4 CONE IN'), `set 4 swaps the group, got: ${texts.join(', ')}`);
+
+  // Sets 5-7 keep the swapped group; set 6 re-marks Minda (STACK), set 7 skips her.
+  const lateWaves = { 5: [GROUP_A, '02CC'], 6: [GROUP_B, '02CB'], 7: [GROUP_A, '02CD'] };
+  for (const wave of [5, 6, 7]) {
+    await sleep(60);
+    n = 0;
+    const [who, icon] = lateWaves[wave];
+    for (const [id, name] of who) {
+      mgr.onLogLine(markerLine(id, name, icon, `uid-grp${wave}-${++n}`));
+    }
+    mgr.frame(1 / 60);
+  }
+  texts = sceneTexts(mgr);
+  assert.ok(texts.includes('7 STACK IN'), `swapped group persists to the final wave: ${texts.join(', ')}`);
+
+  // ~EIGHT_DELAY after set 7's last marker: counter advances to 8 and swaps back.
+  await sleep(100);
+  mgr.frame(1 / 60);
+  texts = sceneTexts(mgr);
+  assert.ok(texts.includes('8 STACK OUT'), `synthetic set 8 swaps again, got: ${texts.join(', ')}`);
+}
+
+// Different icons with the closest player -> IN (and the set-4 swap flips it to OUT).
+{
+  const mgr = new LuaManager(() => [1280, 720]);
+  assert.equal(mgr.add('dmu-p2-forsaken.lua', groupCode).ok, true);
+
+  for (const [id, name, x, y] of POSITIONS) mgr.onLogLine(posLine(id, name, x, y));
+
+  // This pull Vittorio carries STACK while Minda has SPREAD.
+  const set1Ids = { 'Abnar Fae': '02CB', 'Cora Fenix': '02CD', 'Torn Amo': '02CB', 'Zephyra Hana': '02CC', 'Erynd Altansarr': '02CD', 'Hendrick Sands': '02CD', 'Minda Silva': '02CC', 'Vittorio Dravorn': '02CB' };
+  let n = 0;
+  for (const [id, name] of [...GROUP_A, ...GROUP_B]) {
+    mgr.onLogLine(markerLine(id, name, set1Ids[name], `uid-grp2-${++n}`));
+  }
+  mgr.frame(1 / 60);
+  let texts = sceneTexts(mgr);
+  assert.ok(texts.includes('1 SPREAD IN'), `closest player differs -> IN, got: ${texts.join(', ')}`);
+
+  for (let wave = 2; wave <= 4; wave++) {
+    await sleep(60);
+    n = 0;
+    const who = wave === 4 ? GROUP_B : GROUP_A;
+    for (const [id, name] of who) {
+      mgr.onLogLine(markerLine(id, name, '02CD', `uid-grp2-${wave}-${++n}`));
+    }
+    mgr.frame(1 / 60);
+  }
+  texts = sceneTexts(mgr);
+  assert.ok(texts.includes('4 CONE OUT'), `set-4 swap flips IN to OUT, got: ${texts.join(', ')}`);
 }
 
 // The two latched lines are drawn large (>= 40px at the test canvas size), not tiny.
