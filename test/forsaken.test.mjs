@@ -312,6 +312,29 @@ const groupCode = code
   assert.ok(texts.includes('4 CONE OUT'), `set-4 swap flips IN to OUT, got: ${texts.join(', ')}`);
 }
 
+// Stationary players: nobody emits position updates while standing in pull
+// positioning, so by wave-1 time every sample is older than POS_FRESH_MS. The lookup
+// must fall back to those stale-but-correct positions (they are still where the player
+// stands) instead of picking a different fresh player or giving up — the real-world
+// cause of IN/OUT misclassification with a stationary closest player.
+{
+  const mgr = new LuaManager(() => [1280, 720]);
+  assert.equal(mgr.add('dmu-p2-forsaken.lua', groupCode.replace('local POS_FRESH_MS = 20000', 'local POS_FRESH_MS = 50')).ok, true);
+
+  for (const [id, name, x, y] of POSITIONS) mgr.onLogLine(posLine(id, name, x, y));
+  await sleep(80); // let every sample age out past the shrunken freshness window
+
+  // Vittorio (the closest player) carries STACK here — different from Minda's SPREAD.
+  const set1Ids = { 'Abnar Fae': '02CB', 'Cora Fenix': '02CD', 'Torn Amo': '02CB', 'Zephyra Hana': '02CC', 'Erynd Altansarr': '02CD', 'Hendrick Sands': '02CD', 'Minda Silva': '02CC', 'Vittorio Dravorn': '02CB' };
+  let n = 0;
+  for (const [id, name] of [...GROUP_A, ...GROUP_B]) {
+    mgr.onLogLine(markerLine(id, name, set1Ids[name], `uid-stale-${++n}`));
+  }
+  mgr.frame(1 / 60);
+  const texts = sceneTexts(mgr);
+  assert.ok(texts.includes('1 SPREAD IN'), `stale positions still resolve via the closest player, got: ${texts.join(', ')}`);
+}
+
 // The two latched lines are drawn large (>= 40px at the test canvas size), not tiny.
 {
   const mgr = new LuaManager(() => [1280, 720]);

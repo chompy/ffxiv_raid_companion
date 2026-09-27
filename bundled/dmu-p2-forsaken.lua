@@ -63,9 +63,12 @@ local CLEAR_MS = 30000
 -- groups at that point.
 local EIGHT_DELAY_MS = 10000
 
--- Entity state lines stream every few seconds per player in combat; anything older
--- than this is stale (pre-pull positioning, other engagements) and excluded from the
--- closest-player lookup.
+-- Players who stand still emit no position updates at all — a pull's pre-wave
+-- positioning is exactly that case. So the closest-player lookup prefers samples no
+-- older than this (which screens out stray entities from other zones), but falls back
+-- to ANY sample from this combat when nobody has a fresh one: positions are cleared on
+-- every combat boundary, so anything in the table belongs to the current pull and a
+-- stationary player's old sample is still where they are standing.
 local POS_FRESH_MS = 20000
 
 local SEEN_UID_CAP = 8192
@@ -92,22 +95,27 @@ local function nowMs() return math.floor(now() * 1000 + 0.5) end
 
 local function flip(g) return g == 'IN' and 'OUT' or 'IN' end
 
--- The player (other than you) with the freshest position nearest to yours, or nil if
--- your own position is unknown/stale.
+-- The player (other than you) nearest to yours: the closest with a fresh sample if
+-- anyone has one, otherwise the closest by any age (stationary players). Nil only if
+-- your own position is unknown.
 local function pickNearest()
   local me = positions[MY_ID]
   if me == nil or me.x == nil or me.y == nil then return nil end
   local tMs = nowMs()
-  local bestId, bestD2 = nil, nil
+  local freshId, freshD2, staleId, staleD2 = nil, nil, nil, nil
   for id, p in pairs(positions) do
-    if id ~= MY_ID and p.x ~= nil and p.y ~= nil and (tMs - p.t) <= POS_FRESH_MS then
+    if id ~= MY_ID and p.x ~= nil and p.y ~= nil then
       local dx = p.x - me.x
       local dy = p.y - me.y
       local d2 = dx * dx + dy * dy
-      if bestD2 == nil or d2 < bestD2 then bestId, bestD2 = id, d2 end
+      if (tMs - p.t) <= POS_FRESH_MS then
+        if freshD2 == nil or d2 < freshD2 then freshId, freshD2 = id, d2 end
+      else
+        if staleId == nil or d2 < staleD2 then staleId, staleD2 = id, d2 end
+      end
     end
   end
-  return bestId
+  return freshId or staleId
 end
 
 local function resetAll()
