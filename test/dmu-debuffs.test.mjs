@@ -334,6 +334,83 @@ function testSlotRemovalAndAmbiguity() {
 
 testSlotRemovalAndAmbiguity();
 
+// --- late-P4 Mana Charge / Release ----------------------------------------------
+// A Kefka clone (the "Mana Charge" caster, BAA4) receives four telegraph markers per
+// pull: thunder charge, blizzard charge, then the release pair at once when Mana
+// Release casts. An element's final simultaneous cast is REAL iff its charge state and
+// release telegraph agree; line 6 carries the computed outcome ("6 - OUT, THUNDER ...").
+const manaCast = (hex) => `20|2026-09-28T13:53:13.0000000-04:00|400008D0|Kefka|${hex}|x|400008D0|Kefka|3.200|99.99|99.99|-0.015|3.14|aaaa`;
+const manaMarker = (mid) => `27|2026-09-28T13:53:19.0000000-04:00|400008D0|Kefka|6ABAA9AC|0000|${mid}|400008D0|0000|0000|bbbb`;
+// No personal debuffs held -> the two empty waves default to STACK (existing rule).
+const INACTIVE_SLOTS = [A('1 - STACK'), I('2 -'), I('3 -'), A('4 - STACK'), I('5 -'), I('6 -')];
+
+function testManaReleaseUserPull() {
+  // The user's actual pull (2026-09-28 13:53): MC1 REAL, MC2 FAKE, release telegraphs
+  // both FAKE -> thunder R+F = different = FAKE, blizzard F+F = same = REAL. Tsunami
+  // resolves FAKE this round (p=1119).
+  const m = freshMgr();
+  // An earlier P4 round also stamps these markers on the SAME clone before Mana Charge:
+  // with no holder known yet they must be ignored and nothing drawn.
+  m.onLogLine(manaMarker('02A4'));
+  m.onLogLine(manaMarker('02A6'));
+  m.frame(1 / 60);
+  assert.equal(tableRows(m).length, 0, 'pre-Mana-Charge markers draw nothing');
+
+  m.onLogLine(manaCast('BAA4'));
+  m.onLogLine(manaMarker('02A6')); // thunder charge REAL (MC1)
+  m.frame(1 / 60);
+  assert.deepEqual(slotLines(m).map((l) => [l.text, l.color === '#ffd24c']), INACTIVE_SLOTS, 'one charge state: still unknown');
+
+  m.onLogLine(manaMarker('02A3')); // blizzard charge FAKE (MC2)
+  m.frame(1 / 60);
+  assert.deepEqual(slotLines(m).map((l) => [l.text, l.color === '#ffd24c']), INACTIVE_SLOTS, 'charges known but release not yet');
+
+  m.onLogLine(manaCast('BAA5')); // Mana Release casts — its two telegraphs land at once
+  m.onLogLine(manaMarker('02A3')); // release blizzard FAKE
+  m.onLogLine(manaMarker('02A5')); // release thunder FAKE
+  m.frame(1 / 60);
+  const early = slotLines(m)[5];
+  assert.equal(early.text, '6 - THUNDER FAKE, BLIZARD REAL', 'outcome shown the moment the release telegraphs land');
+  assert.equal(early.color, '#ffd24c', 'early outcome drawn active');
+
+  // Tsunami resolves FAKE: its word rides along on the same line.
+  m.onLogLine(tellChaos('45F'));
+  m.onLogLine(applyToMe('15AC', 'Dynamic Fluid', 84));
+  m.frame(1 / 60);
+  assert.equal(slotLines(m)[5].text, '6 - OUT, THUNDER FAKE, BLIZARD REAL');
+}
+
+function testManaReleaseAllReal() {
+  // same+same on both elements -> REAL/REAL; tsunami resolves REAL (p=1120).
+  const m = freshMgr();
+  m.onLogLine(manaCast('BAA4'));
+  m.onLogLine(manaMarker('02A6')); // thunder charge REAL
+  m.onLogLine(manaMarker('02A4')); // blizzard charge REAL
+  m.onLogLine(manaCast('BAA5'));
+  m.onLogLine(manaMarker('02A6')); // release thunder REAL
+  m.onLogLine(manaMarker('02A4')); // release blizzard REAL
+  m.onLogLine(tellChaos('460'));
+  m.onLogLine(applyToMe('15AC', 'Dynamic Fluid', 84));
+  m.frame(1 / 60);
+  assert.equal(slotLines(m)[5].text, '6 - IN, THUNDER REAL, BLIZARD REAL');
+}
+
+function testManaReleaseRealLog() {
+  // Real pull cut from Network_30301_20260928.log: MC1 REAL (02A6), MC2 FAKE (02A3),
+  // release pair (02A5, 02A3) -> thunder FAKE, blizzard REAL. No fresh Chaos tell is
+  // active when Dynamic Fluid lands this round, so the line carries no IN/OUT word.
+  const mgr = new LuaManager(() => [1280, 720]);
+  assert.equal(mgr.add('dmu-p4-debuffs.lua', code).ok, true);
+  replay(mgr, fixture('p4_mana_release.log'));
+  const lines = slotLines(mgr);
+  assert.equal(lines[5].text, '6 - THUNDER FAKE, BLIZARD REAL', JSON.stringify(lines));
+  assert.equal(lines[5].color, '#ffd24c');
+}
+
+testManaReleaseUserPull();
+testManaReleaseAllReal();
+testManaReleaseRealLog();
+
 testMixedPullLatestFake();
 testMixedPullLatestReal();
 

@@ -26,6 +26,29 @@
 local TELL_STATUS = "808"
 local FRESH_TELL_MS = 20000
 
+-- Late-P4 Mana Charge / Release (a Kefka clone): the final simultaneous TTIII/BIIIB is
+-- real or fake per element, which decides where the safe spots are. The holder clone
+-- gets a MARKER at each step and the marker id encodes element AND reality:
+--   thunder 02A6=REAL 02A5=FAKE, blizzard 02A4=REAL 02A3=FAKE.
+-- Per pull: one thunder-charge marker (~"Thunder Charged"), one blizzard-charge marker
+-- (~"Blizzard Charged"), then two at once when Mana Release casts (its telegraphs).
+-- An element's final cast is REAL iff its charge and release states agree; line 6 gets
+-- the computed outcome. The same markers also appear on these clones in an earlier P4
+-- round, so everything is anchored to the Mana Charge cast (BAA4).
+local MANA_ACTION = { BAA4 = true, BAA5 = true } -- Mana Charge / Mana Release
+
+local function manaMarker(mid)
+  if mid == "02A6" then return "t", true end   -- thunder REAL telegraph
+  if mid == "02A5" then return "t", false end  -- thunder FAKE telegraph
+  if mid == "02A4" then return "b", true end   -- blizzard REAL telegraph
+  if mid == "02A3" then return "b", false end  -- blizzard FAKE telegraph
+  return nil, nil
+end
+
+local function freshMana()
+  return { holderId = nil, mcT = nil, mcB = nil, mrT = nil, mrB = nil }
+end
+
 -- The table only appears while mechanics are happening and stays up this long after
 -- the last related line (tells, debuff applies/removals, boss casts) before clearing.
 local CLEAR_MS = 120000
@@ -91,6 +114,7 @@ local priorTells = {} -- bossName -> { param=, endedAtMs= } (tell already active
 local tellSeen   = {} -- bossName -> true once any of its tell lines was observed this session
 local casts      = {} -- cast name -> last seen ms
 local personalWaves = {} -- { at=, expire= } for every observed cwfl/ab apply (any carrier)
+local mana = freshMana() -- Mana Charge / Release sequence state (see above)
 local lastActivityMs = nil -- when the newest mechanic-related line was seen (nil = nothing to show)
 
 function resetAll()
@@ -102,6 +126,7 @@ function resetAll()
   tellSeen = {}
   casts = {}
   personalWaves = {}
+  mana = freshMana()
   lastActivityMs = nil
 end
 
@@ -319,8 +344,23 @@ local function resolutionSlots()
   elseif unresolved == 0 then words[4] = "STACK" end
   local lm = mechs.csLong
   if lm and lm.reality then words[5] = SHRIEK_WORD[lm.reality] end
+  -- Mana Charge/Release outcome: an element's final cast is REAL iff its charge state
+  -- agrees with the release telegraph. All four states land at once when Mana Release
+  -- casts — about seven seconds BEFORE the tsunami tell resolves, so show them early;
+  -- once Tsunami resolves they ride along on the same line ("6 - OUT, THUNDER ...").
+  local tReal, bReal
+  if mana.mcT ~= nil and mana.mrT ~= nil then tReal = (mana.mcT == mana.mrT) end
+  if mana.mcB ~= nil and mana.mrB ~= nil then bReal = (mana.mcB == mana.mrB) end
+  local elemText
+  if tReal ~= nil and bReal ~= nil then
+    elemText = ", THUNDER " .. (tReal and "REAL" or "FAKE") .. ", BLIZARD " .. (bReal and "REAL" or "FAKE")
+  end
   local tm = mechs.tsunami
-  if tm and tm.reality then words[6] = CHAOS_WORDS.tsunami[tm.reality] end
+  if tm and tm.reality then
+    words[6] = CHAOS_WORDS.tsunami[tm.reality] .. (elemText or "")
+  elseif elemText then
+    words[6] = "THUNDER " .. (tReal and "REAL" or "FAKE") .. ", BLIZARD " .. (bReal and "REAL" or "FAKE")
+  end
 
   local out = {}
   for i = 1, 6 do
@@ -347,12 +387,49 @@ local function parseCast(raw)
   end
 end
 
+-- Mana Charge/Release cast lines anchor the sequence: BAA4's caster is the clone that
+-- receives all four telegraph markers, so an earlier round's markers on it are ignored.
+local function parseManaCast(raw)
+  local f = splitLine(raw)
+  if #f < 6 or (f[1] ~= "20" and f[1] ~= "21") then return end
+  local hex = (f[5] or ""):upper()
+  if not MANA_ACTION[hex] then return end
+  lastActivityMs = nowMs()
+  if f[1] == "20" and hex == "BAA4" then
+    mana = freshMana() -- a Mana Charge cast (re)starts the sequence
+    mana.holderId = f[3]
+  end
+end
+
+-- Marker lines (code 27): f[3]=target id, f[7]=marker id. Only the holder's telegraph
+-- markers matter. Markers arrive in fixed order per pull — thunder charge, blizzard
+-- charge, then the release pair at once — so the first two fill the charge slots and
+-- everything after is a release telegraph, assigned by element either way. (A log that
+-- starts mid-sequence simply misses some states; the outcome stays hidden until all
+-- four are known rather than guessing.)
+local function parseManaMarker(raw)
+  local f = splitLine(raw)
+  if #f < 7 or f[1] ~= "27" then return end
+  if not mana.holderId or (f[3] or "") ~= mana.holderId then return end
+  local el, real = manaMarker((f[7] or ""):upper())
+  if not el then return end
+  lastActivityMs = nowMs()
+  if not (mana.mcT ~= nil and mana.mcB ~= nil) then
+    if el == "t" and mana.mcT == nil then mana.mcT = real
+    elseif el == "b" and mana.mcB == nil then mana.mcB = real end
+  else
+    if el == "t" then mana.mrT = real else mana.mrB = real end
+  end
+end
+
 onLogLine = function(raw)
   local line = raw or ""
   parsePrimaryPlayer(line)
   parseTell(line)
   parseDebuff(line)
   parseCast(line)
+  parseManaCast(line)
+  parseManaMarker(line)
 end
 
 local ROWS = { "cwfl", "ab", "csShort", "csLong", "inferno", "tsunami" }
