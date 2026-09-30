@@ -63,14 +63,6 @@ local CLEAR_MS = 30000
 -- groups at that point.
 local EIGHT_DELAY_MS = 10000
 
--- Players who stand still emit no position updates at all — a pull's pre-wave
--- positioning is exactly that case. So the closest-player lookup prefers samples no
--- older than this (which screens out stray entities from other zones), but falls back
--- to ANY sample from this combat when nobody has a fresh one: positions are cleared on
--- every combat boundary, so anything in the table belongs to the current pull and a
--- stationary player's old sample is still where they are standing.
-local POS_FRESH_MS = 20000
-
 local SEEN_UID_CAP = 8192
 
 -- --- state -----------------------------------------------------------------
@@ -84,7 +76,8 @@ local lastActivityMs = nil  -- markers AND casts: feeds the fade window
 local seenUids     = {}
 local seenUidCount = 0
 
--- Positions from entity state lines: id -> { x=, y=, t=<ms of last sample> }.
+-- Last-known positions from entity state lines: id -> { x=, y= }, updated on every
+-- sample for the whole combat and cleared on each boundary.
 local positions    = {}
 local myGroup      = nil    -- 'IN' | 'OUT', assigned from the closest-player compare
 local nearestId    = nil    -- pinned when the first marker wave lands
@@ -95,27 +88,25 @@ local function nowMs() return math.floor(now() * 1000 + 0.5) end
 
 local function flip(g) return g == 'IN' and 'OUT' or 'IN' end
 
--- The player (other than you) nearest to yours: the closest with a fresh sample if
--- anyone has one, otherwise the closest by any age (stationary players). Nil only if
--- your own position is unknown.
+-- The player (other than you) nearest to yours by LAST-KNOWN position. Sample age is
+-- deliberately ignored: players who stand still emit no updates at all, so a sample's
+-- age says nothing about staleness — it is exactly where the player stands when wave 1
+-- lands. The table only ever holds this combat's entities (cleared on every boundary)
+-- and only player ids (arena NPCs are 40xxxxxx), so no stray entity can win. Nil only
+-- if your own position has never been seen this combat.
 local function pickNearest()
   local me = positions[MY_ID]
   if me == nil or me.x == nil or me.y == nil then return nil end
-  local tMs = nowMs()
-  local freshId, freshD2, staleId, staleD2 = nil, nil, nil, nil
+  local bestId, bestD2 = nil, nil
   for id, p in pairs(positions) do
     if id ~= MY_ID and p.x ~= nil and p.y ~= nil then
       local dx = p.x - me.x
       local dy = p.y - me.y
       local d2 = dx * dx + dy * dy
-      if (tMs - p.t) <= POS_FRESH_MS then
-        if freshD2 == nil or d2 < freshD2 then freshId, freshD2 = id, d2 end
-      else
-        if staleId == nil or d2 < staleD2 then staleId, staleD2 = id, d2 end
-      end
+      if bestD2 == nil or d2 < bestD2 then bestId, bestD2 = id, d2 end
     end
   end
-  return freshId or staleId
+  return bestId
 end
 
 local function resetAll()
@@ -191,7 +182,6 @@ function onLogLine(raw)
           local v = tonumber(f[i + 1])
           if v ~= nil then
             if f[i] == 'PosX' then p.x = v else p.y = v end
-            p.t = nowMs()
           end
         end
       end
