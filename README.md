@@ -27,6 +27,7 @@ This entire application was built using agentic AI. I used a local model, Qwen 3
 | `bundled/dmu-p3-limit-cut.lua` | P3 limit cut stand table from clone cast positions (mirrored north / rotation direction). |
 | `bundled/dmu-p3-blackhole.lua` | P3 "Accretion" black hole targets drawn as huge lines, your line highlighted. |
 | `bundled/dmu-p4-debuffs.lua` | P4 real/fake debuff table plus the six resolution windows (stack/spread tells), including late-P4 Mana Charge/Release thunder/blizzard outcomes on the Tsunami line. |
+| `bundled/dmu-p5-celestriad.lua` | P5 Celestriad: your initial elemental resistance debuff as one huge word — FIRE / LIGHTNING / ICE, or NONE if you're one of the two clean players. Mid-mechanic element rotations are ignored. |
 
 - Custom scripts can be dropped in from the sidebar at runtime; they are
   persisted in `localStorage` and restored on reload. Built-ins can be toggled

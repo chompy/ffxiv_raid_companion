@@ -8,6 +8,7 @@ import p4DebuffsCode from '../bundled/dmu-p4-debuffs.lua?raw';
 import limitCutCode from '../bundled/dmu-p3-limit-cut.lua?raw';
 import blackholeCode from '../bundled/dmu-p3-blackhole.lua?raw';
 import forsakenCode from '../bundled/dmu-p2-forsaken.lua?raw';
+import celestriadCode from '../bundled/dmu-p5-celestriad.lua?raw';
 
 // Scripts shipped with the app: always available, cannot be deleted, only toggled.
 const BUILTIN_SCRIPTS = [
@@ -15,6 +16,7 @@ const BUILTIN_SCRIPTS = [
   { name: 'dmu-p3-limit-cut.lua', code: limitCutCode },
   { name: 'dmu-p3-blackhole.lua', code: blackholeCode },
   { name: 'dmu-p2-forsaken.lua', code: forsakenCode },
+  { name: 'dmu-p5-celestriad.lua', code: celestriadCode },
 ];
 
 const timer = new CombatTimer();
