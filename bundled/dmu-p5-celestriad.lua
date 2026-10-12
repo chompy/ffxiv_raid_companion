@@ -35,7 +35,7 @@ local C_DIMMED = "#6a6a80"
 -- emitted by IINACT on zone change) overrides these while the log is streaming;
 -- if no such line ever arrives we just track the default player below.
 local MY_NAME = "Minda Silva"
-local MY_ID   = "10020C04"
+local MY_ID   = "10086F30" -- character ids are per-shard; the 02 line overrides this
 
 local armedAtMs = nil -- when Celestriad's cast was first seen (nil = not in mechanic)
 local assignments = {} -- playerId -> element of their FIRST apply only
@@ -71,8 +71,9 @@ end
 
 local function parsePrimaryPlayer(raw)
   local f = splitLine(raw)
-  -- IINACT line type 2: "2|ts|<charID hex>|<charName>", emitted on zone change.
-  if #f < 4 or f[1] ~= "2" then return end
+  -- IINACT line type 02: "02|ts|<charID hex>|<charName>", emitted on zone change.
+  -- Captured logs zero-pad the code; accept the unpadded form as well.
+  if #f < 4 or (f[1] ~= "2" and f[1] ~= "02") then return end
   if (f[3] or "") ~= "" and (f[4] or "") ~= "" then
     MY_ID, MY_NAME = f[3], f[4]
   end

@@ -22,7 +22,7 @@ const GROUP_A = [
 const GROUP_B = [
   ['100B0101', 'Erynd Altansarr'],
   ['100B0202', 'Hendrick Sands'],
-  ['10020C04', 'Minda Silva'],
+  ['10086F30', 'Minda Silva'],
   ['100B0303', 'Vittorio Dravorn'],
 ];
 
@@ -67,7 +67,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   assert.ok(texts.includes('1 SPREAD'), `your marker from the full wave shown, got: ${texts.join(', ')}`);
 
   // A redelivered copy of the same line (same uid) must not start a fake second set.
-  mgr.onLogLine(markerLine('10020C04', 'Minda Silva', '02CC', 'uid-a-7'));
+  mgr.onLogLine(markerLine('10086F30', 'Minda Silva', '02CC', 'uid-a-7'));
   mgr.frame(1 / 60);
   texts = sceneTexts(mgr);
   assert.ok(texts.includes('1 SPREAD'), `redelivery deduped, got: ${texts.join(', ')}`);
@@ -108,7 +108,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   assert.ok(texts.includes('4 CONE'), `your new icon shown when you are marked, got: ${texts.join(', ')}`);
 
   // Untracked marker ids (other mechanics' traffic) are ignored.
-  mgr.onLogLine(markerLine('10020C04', 'Minda Silva', '0150', 'uid-x-0'));
+  mgr.onLogLine(markerLine('10086F30', 'Minda Silva', '0150', 'uid-x-0'));
   mgr.frame(1 / 60);
   assert.ok(sceneTexts(mgr).includes('4 CONE'), 'unknown marker id ignored');
 
@@ -126,7 +126,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 {
   const mgr = new LuaManager(() => [1280, 720]);
   assert.equal(mgr.add('dmu-p2-forsaken.lua', code).ok, true);
-  mgr.onLogLine(markerLine('10020C04', 'Minda Silva', '02CB', 'uid-z-0'));
+  mgr.onLogLine(markerLine('10086F30', 'Minda Silva', '02CB', 'uid-z-0'));
   mgr.frame(1 / 60);
   assert.ok(sceneTexts(mgr).includes('1 STACK'));
   mgr.onChangeZone('The Lavender Beds');
@@ -177,7 +177,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 {
   const mgr = new LuaManager(() => [1280, 720]);
   assert.equal(mgr.add('dmu-p2-forsaken.lua', code.replace('local CLEAR_MS = 30000', 'local CLEAR_MS = 50')).ok, true);
-  mgr.onLogLine(markerLine('10020C04', 'Minda Silva', '02CB', 'uid-f-0'));
+  mgr.onLogLine(markerLine('10086F30', 'Minda Silva', '02CB', 'uid-f-0'));
   mgr.frame(1 / 60);
   assert.ok(sceneTexts(mgr).includes('1 STACK'), 'latched before fade');
 
@@ -186,7 +186,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   assert.deepEqual(sceneTexts(mgr), [], 'display fades after CLEAR_MS of quiet');
 
   // A later marker wave (next cycle / next pull in-zone) starts fresh.
-  mgr.onLogLine(markerLine('10020C04', 'Minda Silva', '02CC', 'uid-f-1'));
+  mgr.onLogLine(markerLine('10086F30', 'Minda Silva', '02CC', 'uid-f-1'));
   mgr.frame(1 / 60);
   assert.ok(sceneTexts(mgr).includes('1 SPREAD'), `reactivates from set 1, got: ${sceneTexts(mgr).join(', ')}`);
 
@@ -213,9 +213,44 @@ const POSITIONS = [
   ['100A0404', 'Zephyra Hana', 97.0625, 99.8092],
   ['100B0101', 'Erynd Altansarr', 105.5840, 101.0017],
   ['100B0202', 'Hendrick Sands', 107.4868, 99.2599],
-  ['10020C04', 'Minda Silva', 93.5834, 103.4361],
+  ['10086F30', 'Minda Silva', 93.5834, 103.4361],
   ['100B0303', 'Vittorio Dravorn', 96.3607, 103.3798],
 ];
+
+// Real party from the 2026-10-11 DMU log (shard transfer: Minda's id is now
+// 10086F30, not her old shard's). Positions are each player's last sample at the
+// moment wave 1 lands; the fifth column is that player's wave-1 marker. Rice Foxx
+// stands ~1.9m from Minda and carries STACK vs her SPREAD -> IN.
+const POSITIONS_1011 = [
+  ['1001A040', 'Drake Vangaurd', 94.7128, 98.1307, '02CC'],
+  ['1002C3DC', 'Rice Foxx', 97.1580, 103.7922, '02CB'],
+  ['10057E1D', 'Ace Lost', 108.5984, 105.9128, '02CD'],
+  ['1005A104', 'Reyden Valterra', 96.3301, 95.3230, '02CC'],
+  ['10086F30', 'Minda Silva', 95.2616, 104.0176, '02CC'],
+  ['1009608E', 'With Regards', 106.7559, 102.6331, '02CD'],
+  ['100C6C08', 'Lily Primrose', 108.5587, 104.5813, '02CB'],
+  ['100CB1B3', 'Andre Bokmerker', 103.6225, 103.1424, '02CD'],
+];
+
+// Shard transfer (the 2026-10-11 pull): character ids are per-shard and Minda's
+// changed between pulls. IINACT emits the identity line with the zero-padded code
+// "02"; if the script only matched the unpadded "2" it would keep tracking the stale
+// default id, find no position for "you", and IN/OUT would never resolve.
+{
+  const mgr = new LuaManager(() => [1280, 720]);
+  assert.equal(mgr.add('dmu-p2-forsaken.lua', code).ok, true);
+
+  mgr.onLogLine('02|2026-10-11T18:45:26.6490000-04:00|10086F30|Minda Silva');
+  for (const [id, name, x, y] of POSITIONS_1011) mgr.onLogLine(posLine(id, name, x, y));
+
+  let n = 0;
+  for (const [id, name, , , markerId] of POSITIONS_1011) {
+    mgr.onLogLine(markerLine(id, name, markerId, `uid-1011-${++n}`));
+  }
+  mgr.frame(1 / 60);
+  const texts = sceneTexts(mgr);
+  assert.ok(texts.includes('1 SPREAD IN'), `new id via 02 line resolves the closest-player compare, got: ${texts.join(', ')}`);
+}
 
 // Shrink the synthetic-set-8 delay along with the new-set gap for test timing.
 const groupCode = code
@@ -344,7 +379,7 @@ const groupCode = code
 {
   const mgr = new LuaManager(() => [1280, 720]);
   assert.equal(mgr.add('dmu-p2-forsaken.lua', code).ok, true);
-  mgr.onLogLine(markerLine('10020C04', 'Minda Silva', '02CB', 'uid-s-0'));
+  mgr.onLogLine(markerLine('10086F30', 'Minda Silva', '02CB', 'uid-s-0'));
   mgr.onLogLine(castLine("Future's End"));
   mgr.frame(1 / 60);
   const big = mgr.scenes()[0].scene.filter((op) => op.type === 'text' && op.size >= 40).map((op) => op.text);
