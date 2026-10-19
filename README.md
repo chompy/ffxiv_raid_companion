@@ -34,6 +34,10 @@ This entire application was built using agentic AI. I used a local model, Qwen 3
   but not removed.
 - Replay mode: load a captured log file (e.g. an IINACT export) and replay it
   through the exact same pipeline as live data, for offline testing of scripts.
+- Mobile-friendly: below 760px the sidebar becomes an overlay drawer that starts
+  closed so the canvas fills the screen; while the tab is visible a [Screen
+  Wake Lock](https://developer.mozilla.org/en-US/docs/Web/API/Wake_Lock_API)
+  keeps the device from sleeping mid-pull.
 
 ## Technology
 

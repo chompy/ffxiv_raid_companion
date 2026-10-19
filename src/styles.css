@@ -27,12 +27,17 @@ body {
   color: var(--text);
   font-family: 'Segoe UI', system-ui, sans-serif;
   font-size: 14px;
+  /* App-like feel on phones: no double-tap-zoom delay, no pull-to-refresh. */
+  touch-action: manipulation;
+  overscroll-behavior-y: none;
 }
 
 #app {
   display: flex;
   flex-direction: column;
   height: 100vh;
+  /* Dynamic viewport height so mobile browser chrome (URL bar) doesn't clip. */
+  height: 100dvh;
   overflow: hidden;
 }
 
@@ -392,4 +397,50 @@ button.primary:hover:not(:disabled) {
   inset: 0;
   width: 100%;
   height: 100%;
+}
+
+/* --- Mobile layout -------------------------------------------------------- */
+/* Below this the sidebar stops squeezing the canvas and becomes an overlay
+   drawer instead (see main.js: it starts collapsed on these widths). */
+@media (max-width: 760px) {
+  #status-bar {
+    gap: 8px;
+    padding: 0 10px;
+    font-size: 13px;
+  }
+
+  .bar-label,
+  #combat-state {
+    font-size: 12px;
+  }
+
+  #content-row {
+    position: relative; /* containing block for the drawer */
+  }
+
+  #sidebar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: min(85vw, 340px);
+    z-index: 10;
+    overflow-y: auto;
+    box-shadow: 8px 0 24px rgba(0, 0, 0, 0.5);
+  }
+
+  /* Bigger touch targets for thumbs. */
+  button {
+    padding: 9px 14px;
+    min-height: 38px;
+  }
+
+  input[type='text'],
+  select {
+    min-height: 38px;
+  }
+
+  .file-btn {
+    padding: 10px;
+  }
 }

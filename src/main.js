@@ -539,7 +539,29 @@ let storedCollapsed = false;
 try {
   storedCollapsed = localStorage.getItem(SIDEBAR_KEY) === '1';
 } catch { /* no storage */ }
-setSidebarCollapsed(storedCollapsed);
+
+// On narrow screens the sidebar is an overlay drawer — always start it closed
+// so the canvas fills the screen (the saved desktop state doesn't apply).
+const startsCollapsed = window.matchMedia('(max-width: 760px)').matches || storedCollapsed;
+setSidebarCollapsed(startsCollapsed);
+
+// --- Screen wake lock --------------------------------------------------------
+// Keep the device screen on while the tab is visible so a tracker never goes
+// dark mid-pull. Browsers drop the lock when the page hides, so re-request it
+// whenever the tab becomes visible again. No-op where the API is unavailable.
+let wakeLockSentinel = null;
+
+async function refreshWakeLock() {
+  if (!('wakeLock' in navigator)) return;
+  try {
+    wakeLockSentinel = document.visibilityState === 'visible'
+      ? await navigator.wakeLock.request('screen')
+      : null;
+  } catch { /* denied — the tracker works fine without it */ }
+}
+
+document.addEventListener('visibilitychange', () => { void refreshWakeLock(); });
+void refreshWakeLock();
 
 renderTimer();
 requestAnimationFrame(frame);
