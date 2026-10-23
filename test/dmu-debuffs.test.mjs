@@ -507,6 +507,30 @@ await new Promise((resolve) => setTimeout(resolve, 90)); // outlast the shrunken
 clearMgr.frame(1 / 60);
 assert.equal(tableRows(clearMgr).length, 0, 'cleared after idle window elapses');
 
+// --- final-mechanic hide -------------------------------------------------------
+// Once P4's last mechanic (Tsunami / thunder-blizzard AOE) resolves, the tracker
+// clears FINAL_HIDE_MS later so it doesn't overlap P5 trackers like Celestriad.
+const hideMgr = new LuaManager(() => [1280, 720]);
+assert.equal(hideMgr.add('dmu-p4-debuffs.lua', code.replace('local FINAL_HIDE_MS = 15000', 'local FINAL_HIDE_MS = 60')).ok, true);
+hideMgr.onLogLine(tellChaos('460'));
+hideMgr.onLogLine(applyToMe('15AC', 'Dynamic Fluid', 84)); // tsunami resolves REAL -> final mechanic done
+hideMgr.frame(1 / 60);
+assert.ok(tableRows(hideMgr).length > 0, 'tracker shown right after the final mechanic');
+await new Promise((resolve) => setTimeout(resolve, 90)); // outlast the shrunken hide window
+hideMgr.frame(1 / 60);
+assert.equal(tableRows(hideMgr).length, 0, 'cleared FINAL_HIDE_MS after tsunami resolves');
+
+// The timer only arms on the FINAL mechanic: with just Inferno resolved (tsunami
+// still blank) the tracker must stay up past the same window.
+const notFinalMgr = new LuaManager(() => [1280, 720]);
+assert.equal(notFinalMgr.add('dmu-p4-debuffs.lua', code.replace('local FINAL_HIDE_MS = 15000', 'local FINAL_HIDE_MS = 60')).ok, true);
+notFinalMgr.onLogLine(tellChaos('460'));
+notFinalMgr.onLogLine(applyToMe('15AB', 'Entropy', 45)); // inferno only — tsunami unresolved
+notFinalMgr.frame(1 / 60);
+await new Promise((resolve) => setTimeout(resolve, 90));
+notFinalMgr.frame(1 / 60);
+assert.ok(tableRows(notFinalMgr).length > 0, 'tracker stays up while the final mechanic is unresolved');
+
 // --- combat-start reset --------------------------------------------------------
 // A re-pull in the same zone fires onCombatStart (never onChangeZone); if a fight's
 // defeat/victory line is missing from the stream, this is what keeps state clean.

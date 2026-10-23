@@ -53,6 +53,13 @@ end
 -- the last related line (tells, debuff applies/removals, boss casts) before clearing.
 local CLEAR_MS = 120000
 
+-- P4's final mechanic is the late-round Tsunami / thunder-blizzard AOE. Once it has
+-- resolved (tsunami reality known), keep the display up this long so the outcome can
+-- be read, then clear: the fight moves on to P5 and a lingering table would overlap
+-- other trackers (e.g. Celestriad). If tsunami never resolves (missed tell) the
+-- CLEAR_MS idle window above is the fallback.
+local FINAL_HIDE_MS = 15000
+
 -- Shared visual language across the example scripts — keep these in sync.
 local C_TITLE  = "#ffffff"
 local C_LABEL  = "#5a627e"
@@ -116,6 +123,7 @@ local casts      = {} -- cast name -> last seen ms
 local personalWaves = {} -- { at=, expire= } for every observed cwfl/ab apply (any carrier)
 local mana = freshMana() -- Mana Charge / Release sequence state (see above)
 local lastActivityMs = nil -- when the newest mechanic-related line was seen (nil = nothing to show)
+local finalResolvedAtMs = nil -- when P4's final mechanic (Tsunami / thunder-blizzard AOE) resolved
 
 function resetAll()
   mechs = {}
@@ -128,6 +136,7 @@ function resetAll()
   personalWaves = {}
   mana = freshMana()
   lastActivityMs = nil
+  finalResolvedAtMs = nil
 end
 
 -- onCombatStart covers the case where a fight ends without a defeat/victory line we
@@ -500,6 +509,16 @@ onFrame = function(_dt)
   -- round is considered resolved and clears out.
   if lastActivityMs == nil then return end
   if tMs - lastActivityMs > CLEAR_MS then resetAll(); return end
+
+  -- P4's final mechanic has resolved (tsunami reality known — set by an apply/cast
+  -- line above or the per-frame tell re-check): keep the outcome visible for a short
+  -- read window, then clear so later-phase trackers get a clean canvas.
+  if finalResolvedAtMs == nil and mechs.tsunami and mechs.tsunami.reality then
+    finalResolvedAtMs = tMs
+  end
+  if finalResolvedAtMs ~= nil and tMs - finalResolvedAtMs > FINAL_HIDE_MS then
+    resetAll(); return
+  end
 
   local w, h = canvasWidth(), canvasHeight()
   local nameX = math.floor(w / 2 - PANEL_W / 2)
