@@ -23,6 +23,12 @@
 -- moment (durations differ per player, expiries align), so the earlier cluster is
 -- the short wave and the later one the long wave.
 
+-- Sidebar label + draw priority: later phases carry higher priorities so they
+-- render over any lingering display from an earlier phase.
+function config()
+    return { name = "P4 Debuffs", priority = 30 }
+end
+
 local TELL_STATUS = "808"
 local FRESH_TELL_MS = 20000
 

@@ -319,10 +319,13 @@ builtinDivider.className = 'script-section';
 builtinDivider.textContent = 'Built-in';
 let customDivider = null;
 
-function makeScriptItem(id, name, { builtin = false, enabled = true } = {}) {
+// `name` is the file name — the identity used for localStorage keys and removal.
+// `displayName` (from an optional Lua config()) is only what the label shows.
+function makeScriptItem(id, name, { builtin = false, enabled = true, displayName } = {}) {
   const li = document.createElement('li');
   li.dataset.scriptId = String(id);
   if (builtin) li.dataset.builtin = 'true';
+  li.dataset.displayName = displayName ?? name; // used for alphabetical list ordering
 
   const toggle = document.createElement('input');
   toggle.type = 'checkbox';
@@ -338,7 +341,8 @@ function makeScriptItem(id, name, { builtin = false, enabled = true } = {}) {
 
   const label = document.createElement('span');
   label.className = 'script-name';
-  label.textContent = name;
+  label.textContent = displayName ?? name;
+  if (displayName && displayName !== name) label.title = name; // file name on hover
 
   li.append(toggle, label);
 
@@ -377,8 +381,8 @@ function dropCustomDividerIfEmpty() {
   }
 }
 
-// Slots a custom script item into the Custom block above the Built-In divider,
-// creating the "Custom" label on first use.
+// Slots a custom script item into the Custom block above the Built-In divider, in
+// alphabetical order by display name, creating the "Custom" label on first use.
 function placeCustomItem(li) {
   if (!customDivider) {
     customDivider = document.createElement('li');
@@ -386,7 +390,10 @@ function placeCustomItem(li) {
     customDivider.textContent = 'Custom';
     builtinDivider.before(customDivider);
   }
-  builtinDivider.before(li);
+  const later = [...scriptList.querySelectorAll('li[data-script-id]')]
+    .filter((el) => !el.dataset.builtin && el !== li)
+    .find((el) => li.dataset.displayName.localeCompare(el.dataset.displayName) < 0);
+  (later ?? builtinDivider).before(li);
 }
 
 function syncLuaErrors() {
@@ -420,7 +427,7 @@ luaFileInput.addEventListener('change', async () => {
     if (result.ok) {
       scriptState.custom.set(file.name, code);
       persistScriptState();
-      placeCustomItem(makeScriptItem(result.id, file.name));
+      placeCustomItem(makeScriptItem(result.id, file.name, { displayName: result.displayName }));
       addEvent(`Script loaded: ${file.name}`);
     } else {
       luaErrorEl.hidden = false;
@@ -448,6 +455,9 @@ luaFileInput.addEventListener('change', async () => {
     }
   }
 
+  // Built-ins render alphabetically by display name (custom items self-sort via
+  // placeCustomItem above).
+  const builtinItems = [];
   for (const builtin of BUILTIN_SCRIPTS) {
     const result = luaManager.add(builtin.name, builtin.code);
     if (!result.ok) {
@@ -455,8 +465,10 @@ luaFileInput.addEventListener('change', async () => {
       luaErrorEl.textContent = `${builtin.name}: ${result.error}`;
       continue; // bundled scripts must compile — surface the error instead of hiding it
     }
-    scriptList.appendChild(makeScriptItem(result.id, builtin.name, { builtin: true, enabled: scriptState.enabled.get(builtin.name) ?? true }));
+    builtinItems.push(makeScriptItem(result.id, builtin.name, { builtin: true, displayName: result.displayName, enabled: scriptState.enabled.get(builtin.name) ?? true }));
   }
+  builtinItems.sort((a, b) => a.dataset.displayName.localeCompare(b.dataset.displayName));
+  for (const li of builtinItems) scriptList.appendChild(li);
 
   persistScriptState();
   if (restored > 0) addEvent(`Restored ${restored} custom script(s) from localStorage`);

@@ -28,6 +28,12 @@
 -- it is gone before P3 limit cut takes the canvas. It also resets on combat end /
 -- zone change / re-pull, and a new marker wave reactivates it from scratch.
 
+-- Sidebar label + draw priority: later phases carry higher priorities so they
+-- render over any lingering display from an earlier phase.
+function config()
+    return { name = 'P2 Forsaken', priority = 10 }
+end
+
 local C_TITLE  = '#ffffff'
 local C_BRIGHT = '#e8ecf8'
 local C_ACCENT = '#ffd24c'

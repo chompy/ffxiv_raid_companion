@@ -115,6 +115,29 @@ function onFrame(dtSeconds)  -- every animation frame (~60 Hz); dt clamped to 0.
 - Callbacks that aren't defined are simply skipped; a script with no callbacks
   but state + `onFrame` is fine.
 
+### Optional config()
+
+A script may define `config()`; it is called once at load time and may return a
+table of options (any field omitted, or the function itself, is fine):
+
+```lua
+function config()
+    return { name = "P2 Forsaken", priority = 10 }
+end
+```
+
+- `name` — display label for the script in the sidebar's Lua Scripts list.
+  Replaces the file name; without it the file name is shown (the file name stays
+  the identity used for persistence either way).
+- `priority` — numeric draw order, default `0`. Scenes are replayed sorted by
+  priority ascending with ties keeping load order, so a higher-priority script
+  draws last and renders **on top** of lower-priority ones. Use it to keep
+  later-phase displays above lingering earlier ones, or to pin always-visible
+  information above everything else.
+
+A `config()` that returns something other than a table (or errors) is ignored —
+the script loads with the defaults.
+
 ### Host functions (call these)
 
 ```lua

@@ -6,6 +6,12 @@
 -- re-applies must not change what is shown. Displays YOUR element big —
 -- FIRE / LIGHTNING / ICE, or NONE if you are one of the clean ones.
 
+-- Sidebar label + draw priority: later phases carry higher priorities so they
+-- render over any lingering display from an earlier phase.
+function config()
+    return { name = "P5 Celestriad", priority = 40 }
+end
+
 local CELESTRIAD_ACTION = "BB42" -- cast start AND land carry this action hex
 
 -- Element per status; hex first, display name as a fallback in case a patch

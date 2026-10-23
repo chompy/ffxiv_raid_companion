@@ -14,6 +14,13 @@
 -- from where two players happened to stand). If the log starts mid-sequence, each
 -- unpositioned cast before the first positioned one shifts the inferred start spot 45°
 -- further along the firing order.
+
+-- Sidebar label + draw priority: later phases carry higher priorities so they
+-- render over any lingering display from an earlier phase.
+function config()
+    return { name = 'P3 Limit Cut', priority = 20 }
+end
+
 local PREVIEW_ACTIONS = { BAE3 = true, BAE4 = true } -- "Ultima Blaster" hex ids across patches
 local PREVIEW_NAME = 'Ultima Blaster'                -- fallback if the id shifts in a patch
 local CENTER_X, CENTER_Z = 100.0, 100.0

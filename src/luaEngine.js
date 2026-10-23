@@ -15,6 +15,10 @@
 //     it is released. For displays that should own the whole canvas for a phase.
 //   - Callback globals they may define: onLogLine(raw), onChangeZone(name),
 //     onCombatStart(), onCombatEnd(result, elapsedMs), onFrame(dtSeconds).
+//   - Optional config(): called once at load time; may return a table with
+//     { name = "Display Name" } (sidebar label, replaces the file name) and/or
+//     { priority = <number> } (draw order — higher runs later, so it renders on
+//     top of lower-priority scripts; default 0). Both optional.
 
 import fengari from 'fengari';
 
@@ -46,6 +50,10 @@ function readOptionalString(L, idx, def) {
 export class LuaScript {
   constructor(name, code, getCanvasSize) {
     this.name = name;
+    // Display label defaults to the file name; an optional config() may override.
+    this.displayName = name;
+    // Draw order: higher priority runs later in scenes(), so it renders on top.
+    this.priority = 0;
     this.scene = [];
     this.lastError = null;
     this.takeover = false;
@@ -67,6 +75,47 @@ export class LuaScript {
       lua.lua_pop(L, 1);
       throw new Error(msg.trim());
     }
+
+    // Optional config(): read display name / draw priority. A missing or broken
+    // config is non-fatal — the script just keeps its defaults.
+    this._readConfig();
+  }
+
+  _readConfig() {
+    const L = this.L;
+    lua.lua_getglobal(L, jsToLuaString('config'));
+    if (!lua.lua_isfunction(L, -1)) {
+      lua.lua_pop(L, 1);
+      return;
+    }
+    // Call config() expecting one return value (the options table).
+    const rc = lua.lua_pcall(L, 0, 1, 0);
+    if (rc !== 0 || !lua.lua_istable(L, -1)) {
+      lua.lua_settop(L, 0);
+      return;
+    }
+    const tidx = lua.lua_gettop(L); // absolute index of the table on the stack
+
+    const nameVal = this._tableValue(tidx, 'name');
+    if (typeof nameVal === 'string' && nameVal !== '') this.displayName = nameVal;
+
+    const prioVal = this._tableValue(tidx, 'priority');
+    if (typeof prioVal === 'number' && Number.isFinite(prioVal)) this.priority = prioVal;
+
+    lua.lua_settop(L, 0);
+  }
+
+  // Returns table[tidx][key] as a JS string or number (null if absent / other type).
+  _tableValue(tidx, key) {
+    const L = this.L;
+    const kb = jsToLuaString(key);
+    lua.lua_pushlstring(L, kb, kb.length);
+    lua.lua_gettable(L, tidx); // pops the key, pushes the value (or nil)
+    let out = null;
+    if (lua.lua_isnumber(L, -1)) out = lua.lua_tonumber(L, -1);
+    else if (lua.lua_isstring(L, -1)) out = fengari.to_jsstring(lauxlib.luaL_tolstring(L, -1));
+    lua.lua_pop(L, 1);
+    return out;
   }
 
   _registerHostApi() {
@@ -167,13 +216,13 @@ export class LuaManager {
     this._nextId = 1;
   }
 
-  /** @returns {{ok:true,id:number} | {ok:false,error:string}} */
+  /** @returns {{ok:true,id:number,displayName:string,priority:number} | {ok:false,error:string}} */
   add(name, code) {
     try {
       const script = new LuaScript(name, code, this._getCanvasSize);
       const id = this._nextId++;
       this._scripts.push({ id, script, enabled: true });
-      return { ok: true, id };
+      return { ok: true, id, displayName: script.displayName, priority: script.priority };
     } catch (err) {
       return { ok: false, error: err.message };
     }
@@ -208,15 +257,19 @@ export class LuaManager {
     }));
   }
 
-  /** Scenes of the enabled scripts, in load order, for the renderer to replay.
-   *  While one of them holds a canvas takeover, only its scene is returned —
-   *  the others keep running but stay off the display until it is released. */
+  /** Scenes of the enabled scripts, for the renderer to replay in order.
+   *  Ordered by config() priority ascending (stable — ties keep load order), so a
+   *  higher-priority script draws last and renders on top of lower ones. While one
+   *  of them holds a canvas takeover, only its scene is returned — the others keep
+   *  running but stay off the display until it is released. */
   scenes() {
     const list = this._scripts.filter(({ enabled }) => enabled);
     for (const entry of list) {
       if (entry.script.takeover) return [{ name: entry.script.name, scene: entry.script.scene }];
     }
-    return list.map(({ script }) => ({ name: script.name, scene: script.scene }));
+    return [...list]
+      .sort((a, b) => a.script.priority - b.script.priority)
+      .map(({ script }) => ({ name: script.name, scene: script.scene }));
   }
 
   onLogLine(raw) {

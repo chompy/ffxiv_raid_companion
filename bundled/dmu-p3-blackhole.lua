@@ -14,6 +14,12 @@
 -- fresh to show the script holds a canvas takeover (takeoverCanvas): other scripts'
 -- scenes keep updating but are not drawn until this one clears.
 
+-- Sidebar label + draw priority: lands while the limit-cut table is still up, so it
+-- carries a higher priority than P3 Limit Cut and renders over it (takeover aside).
+function config()
+    return { name = 'P3 Black Hole', priority = 21 }
+end
+
 -- Shared visual language across the example scripts — keep these in sync.
 local C_TITLE  = '#ffffff'
 local C_LABEL  = '#5a627e'
