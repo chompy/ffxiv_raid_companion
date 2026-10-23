@@ -16,6 +16,9 @@ This entire application was built using agentic AI. I used a local model, Qwen 3
 - Streams IINACT network logs (OverlayPlugin websocket protocol) and feeds every
   line to the loaded Lua scripts in real time.
 - Tracks combat state (start / wipe / victory, elapsed timer, zone, player name).
+  Your character id + name persist in `localStorage` and are re-injected into the
+  scripts at boot, so a mid-combat page refresh doesn't drop script identity until
+  the next zone entry.
 - Renders one shared `<canvas>` owned by Lua scripts: each script builds a scene
   of draw operations per frame; multiple scripts compose on the same canvas, and
   any script can take the whole canvas over for its phase.

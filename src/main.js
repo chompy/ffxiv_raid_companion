@@ -40,13 +40,17 @@ const combatStateEl = document.getElementById('combat-state');
 const appEl = document.getElementById('app');
 const sidebarToggle = document.getElementById('sidebar-toggle');
 
-// Player name persists across reloads: the type-02 line only arrives on zone
-// entry, so a refresh mid-session would otherwise leave the bar showing "—".
+// Player identity persists across reloads: the type-02 line only arrives on zone
+// entry, so a refresh mid-session would otherwise leave the bar showing "—" AND the
+// Lua scripts sitting on their fallback default id until the next zone change. The
+// id is re-injected into every script at boot (see below) for exactly that case.
 const PLAYER_KEY = 'ffxiv-raid-viewer-player-name';
-function setPlayerName(name) {
+const PLAYER_ID_KEY = 'ffxiv-raid-viewer-player-id';
+function setPlayerIdentity(playerId, name) {
   playerNameEl.textContent = name;
   try {
     localStorage.setItem(PLAYER_KEY, name);
+    if (playerId) localStorage.setItem(PLAYER_ID_KEY, playerId);
   } catch { /* private mode — just don't persist */ }
 }
 try {
@@ -140,8 +144,9 @@ function deliverLine(parsed, rawLine) {
       luaManager.onChangeZone(zoneName);
     }
   } else if (parsed.type === LineType.PlayerName) {
+    // Layout: 02|ts|<charID>|<charName> — fields[0] id, fields[1] name.
     const playerName = parsed.fields[1];
-    if (playerName) setPlayerName(playerName);
+    if (playerName) setPlayerIdentity(parsed.fields[0], playerName);
   }
 
   luaManager.onLogLine(rawLine);
@@ -473,6 +478,17 @@ luaFileInput.addEventListener('change', async () => {
   persistScriptState();
   if (restored > 0) addEvent(`Restored ${restored} custom script(s) from localStorage`);
 })();
+
+// Re-inject the persisted identity as a synthetic type-02 line so scripts know who
+// "you" are even after a mid-combat refresh, when no fresh 02 line will arrive
+// until the next zone entry. A real 02 line simply overwrites it.
+try {
+  const storedId = localStorage.getItem(PLAYER_ID_KEY);
+  const storedName = localStorage.getItem(PLAYER_KEY);
+  if (storedId && storedName) {
+    luaManager.onLogLine(`02|${new Date().toISOString()}|${storedId}|${storedName}`);
+  }
+} catch { /* no storage — scripts keep their built-in defaults */ }
 
 // --- Wiring ----------------------------------------------------------------
 connectBtn.addEventListener('click', () => {
