@@ -8,7 +8,8 @@
 -- The apply line is a plain status-apply (line 26):
 --   "26|ts|<statusId>|Accretion|<dur>|E0000000||<targetId>|<targetName>|.."
 -- Matched by status NAME so a patch shifting the hex id cannot starve the tracker.
--- Identity follows the P4 tracker: defaults below, overridden by type-2 lines.
+-- Identity comes only from type-2 lines (no fallback character — without one the
+-- display warns instead of guessing who "you" is).
 --
 -- This display lands while the limit-cut table is still up, so while there is anything
 -- fresh to show the script holds a canvas takeover (takeoverCanvas): other scripts'
@@ -42,11 +43,13 @@ local CLEAR_MS = 120000
 -- minutes apart. A gap longer than this starts a new pair even if it reuses a carrier.
 local NEW_WAVE_GAP_MS = 30000
 
--- Identity defaults. A ChangePrimaryPlayer line (type 2: "2|ts|<charID>|<name>",
--- emitted by IINACT on zone change) overrides these while the log is streaming;
--- if no such line ever arrives we just track the default player below.
-local MY_NAME = 'Minda Silva'
-local MY_ID   = '10086F30' -- character ids are per-shard; the 02 line overrides this
+-- Identity comes ONLY from a ChangePrimaryPlayer line (type 2: "2|ts|<charID>|<name>",
+-- emitted by IINACT on zone change and re-injected by the app at boot). There is no
+-- fallback character: without an identity line we cannot know who "you" are, so the
+-- display warns instead of guessing.
+local MY_NAME = nil
+local MY_ID   = nil -- character ids are per-shard; only a 02 line sets these
+local NO_CHARACTER_MSG = 'No character detected - enter any zone once'
 
 -- --- state -----------------------------------------------------------------
 local holders = {} -- targetId -> { name=, atMs= } (the black hole pair)
@@ -129,6 +132,14 @@ end
 
 function onFrame(dt)
   clearCanvas()
+  -- No identity line seen this session: warn instead of guessing a fallback character.
+  if MY_ID == nil then
+    local w, h = canvasWidth(), canvasHeight()
+    local size = math.floor(w * 0.94 / (#NO_CHARACTER_MSG * 0.62))
+    drawText(NO_CHARACTER_MSG, centerText(w / 2, NO_CHARACTER_MSG, size),
+      math.floor(h / 2 + size * 0.35), size, C_WARN)
+    return
+  end
   if lastActivityMs == nil then return end
   local tMs = nowMs()
   if tMs - lastActivityMs > CLEAR_MS then resetAll(); return end

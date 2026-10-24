@@ -37,6 +37,10 @@ function castLine(name) {
   return `21|2026-09-19T19:49:59.7810000-04:00|40010B4D|Kefka|BAD2|${name}|40010B4D|Kefka`;
 }
 
+// The script has no fallback character, so blocks that track Minda feed her identity
+// line up front (the app re-injects the persisted one at boot).
+const IDENTITY = '02|2026-09-19T19:49:40.0000000-04:00|10086F30|Minda Silva';
+
 function sceneTexts(mgr) {
   return mgr.scenes()[0].scene.filter((op) => op.type === 'text').map((op) => op.text);
 }
@@ -50,6 +54,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 {
   const mgr = new LuaManager(() => [1280, 720]);
   assert.equal(mgr.add('dmu-p2-forsaken.lua', fastCode).ok, true, 'script should load');
+  mgr.onLogLine(IDENTITY);
 
   // Nothing latched yet: canvas stays empty.
   mgr.frame(1 / 60);
@@ -126,6 +131,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 {
   const mgr = new LuaManager(() => [1280, 720]);
   assert.equal(mgr.add('dmu-p2-forsaken.lua', code).ok, true);
+  mgr.onLogLine(IDENTITY);
   mgr.onLogLine(markerLine('10086F30', 'Minda Silva', '02CB', 'uid-z-0'));
   mgr.frame(1 / 60);
   assert.ok(sceneTexts(mgr).includes('1 STACK'));
@@ -134,14 +140,16 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   assert.deepEqual(sceneTexts(mgr), [], 'cleared after zone change');
 }
 
-// Identity override: a type-2 line switches who "you" is mid-stream.
+// Identity override: with no identity line the tracker warns (there is NO fallback
+// character), and a type-2 line switches who "you" is mid-stream.
 {
   const mgr = new LuaManager(() => [1280, 720]);
   assert.equal(mgr.add('dmu-p2-forsaken.lua', code).ok, true);
-  // Default identity (Minda): a wave marking only Abnar latches no own marker.
+  // No identity yet: a wave marking only Abnar latches no own marker and the display
+  // warns instead of guessing who "you" is.
   mgr.onLogLine(markerLine('100A01', 'Abnar Fae', '02CB', 'uid-id-1'));
   mgr.frame(1 / 60);
-  assert.deepEqual(sceneTexts(mgr).filter((t) => !/^DMU/.test(t)), ['waiting...', 'waiting...'], 'no self marker yet');
+  assert.ok(sceneTexts(mgr).some((t) => t.startsWith('No character detected')), `warning without identity, got: ${sceneTexts(mgr).join(', ')}`);
 
   mgr.onLogLine('2|2026-09-19T19:50:00.0000000-04:00|100A01|Abnar Fae');
   mgr.frame(1 / 60); // identity alone does not latch a marker
@@ -177,6 +185,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 {
   const mgr = new LuaManager(() => [1280, 720]);
   assert.equal(mgr.add('dmu-p2-forsaken.lua', code.replace('local CLEAR_MS = 30000', 'local CLEAR_MS = 50')).ok, true);
+  mgr.onLogLine(IDENTITY);
   mgr.onLogLine(markerLine('10086F30', 'Minda Silva', '02CB', 'uid-f-0'));
   mgr.frame(1 / 60);
   assert.ok(sceneTexts(mgr).includes('1 STACK'), 'latched before fade');
@@ -263,6 +272,7 @@ const groupCode = code
 {
   const mgr = new LuaManager(() => [1280, 720]);
   assert.equal(mgr.add('dmu-p2-forsaken.lua', groupCode).ok, true);
+  mgr.onLogLine(IDENTITY);
 
   for (const [id, name, x, y] of POSITIONS) mgr.onLogLine(posLine(id, name, x, y));
 
@@ -321,6 +331,7 @@ const groupCode = code
 {
   const mgr = new LuaManager(() => [1280, 720]);
   assert.equal(mgr.add('dmu-p2-forsaken.lua', groupCode).ok, true);
+  mgr.onLogLine(IDENTITY);
 
   for (const [id, name, x, y] of POSITIONS) mgr.onLogLine(posLine(id, name, x, y));
 
@@ -356,6 +367,7 @@ const groupCode = code
 {
   const mgr = new LuaManager(() => [1280, 720]);
   assert.equal(mgr.add('dmu-p2-forsaken.lua', groupCode).ok, true);
+  mgr.onLogLine(IDENTITY);
 
   for (const [id, name, x, y] of POSITIONS) mgr.onLogLine(posLine(id, name, x, y));
   await sleep(150); // stationary players' samples age while the pull gets ready
@@ -379,6 +391,7 @@ const groupCode = code
 {
   const mgr = new LuaManager(() => [1280, 720]);
   assert.equal(mgr.add('dmu-p2-forsaken.lua', code).ok, true);
+  mgr.onLogLine(IDENTITY);
   mgr.onLogLine(markerLine('10086F30', 'Minda Silva', '02CB', 'uid-s-0'));
   mgr.onLogLine(castLine("Future's End"));
   mgr.frame(1 / 60);

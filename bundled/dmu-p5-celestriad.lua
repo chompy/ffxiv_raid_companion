@@ -35,13 +35,16 @@ local C_TITLE  = "#ffffff"
 local C_BRIGHT = "#e8ecf8"
 local C_ACCENT = "#ffd24c"
 local C_REAL   = "#7dff9e"
+local C_WARN   = "#ffd27f"
 local C_DIMMED = "#6a6a80"
 
--- Identity defaults. A ChangePrimaryPlayer line (type 2: "2|ts|<charID>|<name>",
--- emitted by IINACT on zone change) overrides these while the log is streaming;
--- if no such line ever arrives we just track the default player below.
-local MY_NAME = "Minda Silva"
-local MY_ID   = "10086F30" -- character ids are per-shard; the 02 line overrides this
+-- Identity comes ONLY from a ChangePrimaryPlayer line (type 2: "2|ts|<charID>|<name>",
+-- emitted by IINACT on zone change and re-injected by the app at boot). There is no
+-- fallback character: without an identity line we cannot know who "you" are, so the
+-- display warns instead of guessing.
+local MY_NAME = nil
+local MY_ID   = nil -- character ids are per-shard; only a 02 line sets these
+local NO_CHARACTER_MSG = "No character detected - enter any zone once"
 
 local armedAtMs = nil -- when Celestriad's cast was first seen (nil = not in mechanic)
 local assignments = {} -- playerId -> element of their FIRST apply only
@@ -136,6 +139,14 @@ end
 
 onFrame = function(_dt)
   clearCanvas()
+  -- No identity line seen this session: warn instead of guessing a fallback character.
+  if MY_ID == nil then
+    local w, h = canvasWidth(), canvasHeight()
+    local size = math.floor(w * 0.94 / (#NO_CHARACTER_MSG * 0.62))
+    drawText(NO_CHARACTER_MSG, centerText(w / 2, NO_CHARACTER_MSG, size),
+      math.floor(h / 2 + size * 0.35), size, C_WARN)
+    return
+  end
   if armedAtMs == nil then return end
 
   local t = nowMs()

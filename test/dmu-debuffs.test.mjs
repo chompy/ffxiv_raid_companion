@@ -44,6 +44,11 @@ function replay(mgr, file) {
 
 const fixture = (name) => path.join(here, 'fixtures', name);
 
+// The scripts have no fallback character: identity comes only from a type-02 line.
+// Tests feed one up front, simulating the app re-injecting the persisted identity at
+// boot, so "you" is Minda unless a test switches it with its own 02 line.
+const IDENTITY = '02|2026-09-17T21:00:00.0000000-04:00|10020C04|Minda Silva';
+
 // --- Real-log replays -----------------------------------------------------------
 // Each pull below is a snippet of consumed line types cut from a full session log:
 // three Grand Cross rounds plus one Tsunami and one Inferno round, real/fake tells
@@ -53,6 +58,7 @@ function testMixedPullLatestFake() {
   // Rounds: GC#1 REAL, Tsunami REAL, GC#2 REAL, Inferno FAKE, GC#3 FAKE.
   const mgr = new LuaManager(() => [1280, 720]);
   assert.equal(mgr.add('dmu-p4-debuffs.lua', code).ok, true, 'script should load');
+  mgr.onLogLine(IDENTITY);
   replay(mgr, fixture('p4_mixed_latest_fake.log'));
 
   const rows = tableRows(mgr);
@@ -116,6 +122,7 @@ function testMixedPullLatestReal() {
   // Rounds: GC#1 REAL, Tsunami REAL, GC#2 FAKE, Inferno FAKE, GC#3 REAL.
   const mgr = new LuaManager(() => [1280, 720]);
   assert.equal(mgr.add('dmu-p4-debuffs.lua', code).ok, true, 'script should load (pull 2)');
+  mgr.onLogLine(IDENTITY);
   replay(mgr, fixture('p4_mixed_latest_real.log'));
 
   const rows = tableRows(mgr);
@@ -191,6 +198,7 @@ const removeMine = (status, name) => `30|2026-09-17T21:00:05.0000000-04:00|${sta
 function freshMgr() {
   const m = new LuaManager(() => [1280, 720]);
   assert.equal(m.add('dmu-p4-debuffs.lua', code).ok, true);
+  m.onLogLine(IDENTITY); // app re-injects the persisted identity at boot
   return m;
 }
 
@@ -401,6 +409,7 @@ function testManaReleaseRealLog() {
   // active when Dynamic Fluid lands this round, so the line carries no IN/OUT word.
   const mgr = new LuaManager(() => [1280, 720]);
   assert.equal(mgr.add('dmu-p4-debuffs.lua', code).ok, true);
+  mgr.onLogLine(IDENTITY);
   replay(mgr, fixture('p4_mana_release.log'));
   const lines = slotLines(mgr);
   assert.equal(lines[5].text, '6 - THUNDER FAKE, BLIZARD REAL', JSON.stringify(lines));
@@ -419,6 +428,7 @@ testMixedPullLatestReal();
 // "Tsunami" (BAF5). Only P4's action hexes cast by Chaos / Neo Exdeath count.
 const xMgr = new LuaManager(() => [1280, 720]);
 assert.equal(xMgr.add('dmu-p4-debuffs.lua', code).ok, true);
+xMgr.onLogLine(IDENTITY);
 xMgr.onLogLine('21|2026-09-14T21:21:53.3740000-04:00|40016803|Kefka|BAF4|Inferno|E0000000||0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|||||||||||44|44|0|10000|||117.32|90.00|-0.00|-0.00|0000D352|0|0|00||01|BAF4|BAF4|1.100|7FFF|138400e8224f3810');
 xMgr.onLogLine('21|2026-09-14T21:22:20.3990000-04:00|40016804|Kefka|BAF5|Tsunami|100F612E|Mr Toxic|650003|E9E54001|E80E|B7D0000|1B|BAF58000|0|0|0|0|0|0|0|0|0|0|205177|205177|8300|10000|||117.06|105.56|-0.00|1.12|44|44|0|10000|||109.90|109.90|0.00|0.00|0000D449|0|1|00||01|BAF5|BAF5|1.100|7FFF|b5ec3e8e9db67d17');
 xMgr.frame(1 / 60);
@@ -436,20 +446,21 @@ assert.ok(xCastLine2.some((c) => c.text.includes('Inferno')), `P4 Chaos cast lis
 const idMgr = new LuaManager(() => [1280, 720]);
 assert.equal(idMgr.add('dmu-p4-debuffs.lua', code).ok, true);
 
-// No primary player yet: default (Minda Silva) is tracked. A 69s shriek on her marks Long.
+// No identity line yet: there is NO fallback character, so the tracker warns instead
+// of guessing — even though a shriek lands on someone in the party.
 idMgr.onLogLine('26|2026-09-16T22:30:00.0000000-04:00|15A7|Cursed Shriek|69.00|E0000000||10020C04|Minda Silva|00|204515||aaaa0001');
 idMgr.frame(1 / 60);
 let idRows = tableRows(idMgr);
-assert.ok(rowWith(idRows, 'you: Minda Silva') !== null || idRows.some((r) => r[0].text.includes('Minda Silva')),
-  'default player shown in header');
-assert.ok(rowWith(idRows, 'Cursed Shriek (Long)').some((c) => c.text === 'you'), '"you" on Long shriek for default player');
+assert.equal(idRows.length, 1, 'only the warning is drawn without an identity line');
+assert.ok(idRows[0].some((c) => c.text.startsWith('No character detected')),
+  `warning shown: ${JSON.stringify(idRows)}`);
 
-// A ChangePrimaryPlayer line (type 2: id|name) switches whose debuffs are marked.
+// A ChangePrimaryPlayer line (type 2: id|name) establishes who "you" are.
 idMgr.onLogLine('2|2026-09-16T22:30:05.0000000-04:00|100F612E|Mr Toxic');
 
-// A 60s shriek on the new primary player now marks Short...
+// A 60s shriek on the primary player now marks Short...
 idMgr.onLogLine('26|2026-09-16T22:30:06.0000000-04:00|15A7|Cursed Shriek|60.00|E0000000||100F612E|Mr Toxic|00|204515||bbbb0001');
-// ...while the same status on the old default player is ignored.
+// ...while the same status on someone else is not "you".
 idMgr.onLogLine('26|2026-09-16T22:30:06.1000000-04:00|15A7|Cursed Shriek|69.00|E0000000||10020C04|Minda Silva|00|204515||bbbb0002');
 idMgr.frame(1 / 60);
 idRows = tableRows(idMgr);
@@ -460,6 +471,7 @@ assert.ok(!rowWith(idRows, 'Cursed Shriek (Long)').some((c) => c.text === 'you')
 // --- synthetic REAL case --------------------------------------------------------
 const realMgr = new LuaManager(() => [1280, 720]);
 assert.equal(realMgr.add('dmu-p4-debuffs.lua', code).ok, true);
+realMgr.onLogLine(IDENTITY);
 
 realMgr.onLogLine('26|2026-09-14T23:50:00.0000000-04:00|808|Unknown_808|9999.00|E0000000||400250AA|Neo Exdeath|460|188300||deadbeef');
 realMgr.frame(1 / 60);
@@ -500,6 +512,7 @@ assert.equal(tableRows(realMgr).length, 0, 'cleared after zone change');
 // The table stays up for CLEAR_MS (2 min) after the last mechanic line, then clears.
 const clearMgr = new LuaManager(() => [1280, 720]);
 assert.equal(clearMgr.add('dmu-p4-debuffs.lua', code.replace('local CLEAR_MS = 120000', 'local CLEAR_MS = 60')).ok, true);
+clearMgr.onLogLine(IDENTITY);
 clearMgr.onLogLine('26|2026-09-14T23:50:00.0000000-04:00|808|Unknown_808|9999.00|E0000000||400250AA|Neo Exdeath|460|188300||deadbeef');
 clearMgr.frame(1 / 60);
 assert.ok(tableRows(clearMgr).some((r) => r.some((c) => c.text.includes('Neo Exdeath real p=1120'))), 'tracker shown while mechanic active');
@@ -512,6 +525,7 @@ assert.equal(tableRows(clearMgr).length, 0, 'cleared after idle window elapses')
 // clears FINAL_HIDE_MS later so it doesn't overlap P5 trackers like Celestriad.
 const hideMgr = new LuaManager(() => [1280, 720]);
 assert.equal(hideMgr.add('dmu-p4-debuffs.lua', code.replace('local FINAL_HIDE_MS = 60000', 'local FINAL_HIDE_MS = 60')).ok, true);
+hideMgr.onLogLine(IDENTITY);
 hideMgr.onLogLine(tellChaos('460'));
 hideMgr.onLogLine(applyToMe('15AC', 'Dynamic Fluid', 84)); // tsunami resolves REAL -> final mechanic done
 hideMgr.frame(1 / 60);
@@ -524,6 +538,7 @@ assert.equal(tableRows(hideMgr).length, 0, 'cleared FINAL_HIDE_MS after tsunami 
 // still blank) the tracker must stay up past the same window.
 const notFinalMgr = new LuaManager(() => [1280, 720]);
 assert.equal(notFinalMgr.add('dmu-p4-debuffs.lua', code.replace('local FINAL_HIDE_MS = 60000', 'local FINAL_HIDE_MS = 60')).ok, true);
+notFinalMgr.onLogLine(IDENTITY);
 notFinalMgr.onLogLine(tellChaos('460'));
 notFinalMgr.onLogLine(applyToMe('15AB', 'Entropy', 45)); // inferno only — tsunami unresolved
 notFinalMgr.frame(1 / 60);
@@ -536,6 +551,7 @@ assert.ok(tableRows(notFinalMgr).length > 0, 'tracker stays up while the final m
 // defeat/victory line is missing from the stream, this is what keeps state clean.
 const startMgr = new LuaManager(() => [1280, 720]);
 assert.equal(startMgr.add('dmu-p4-debuffs.lua', code).ok, true);
+startMgr.onLogLine(IDENTITY);
 startMgr.onLogLine('26|2026-09-14T23:50:00.0000000-04:00|808|Unknown_808|9999.00|E0000000||400250AA|Neo Exdeath|460|188300||deadbeef');
 startMgr.frame(1 / 60);
 assert.ok(tableRows(startMgr).length > 0, 'tracker shown while mechanic active');

@@ -22,6 +22,9 @@ function bigLines(mgr) {
 
 const mgr = new LuaManager(() => [1280, 720]);
 assert.equal(mgr.add('dmu-p3-blackhole.lua', code).ok, true);
+// No fallback character exists: feed the identity line (the app re-injects the
+// persisted one at boot) so "you" is Minda.
+mgr.onLogLine('2|2026-09-17T15:20:00.0000000-04:00|10020C04|Minda Silva');
 
 mgr.frame(1 / 60);
 assert.deepEqual(bigLines(mgr), [], 'nothing drawn before any apply');
@@ -72,9 +75,19 @@ idMgr.frame(1 / 60);
 big = bigLines(idMgr);
 assert.ok(big.some((op) => op.text === 'Coco Bongo  [YOU]' && op.color === '#ffd24c'), `identity override: ${JSON.stringify(big.map((o) => o.text))}`);
 
+// Without an identity line there is no fallback character to highlight, so the
+// tracker warns instead of drawing a pair with a guessed [YOU].
+const noIdMgr = new LuaManager(() => [1280, 720]);
+assert.equal(noIdMgr.add('dmu-p3-blackhole.lua', code).ok, true);
+noIdMgr.onLogLine(APPLY_A);
+noIdMgr.frame(1 / 60);
+big = bigLines(noIdMgr);
+assert.ok(big.some((op) => op.text.startsWith('No character detected')), `warning without identity: ${JSON.stringify(big.map((o) => o.text))}`);
+
 // --- new-wave gap: a repeated carrier after the gap starts a fresh pair ---------
 const waveMgr = new LuaManager(() => [1280, 720]);
 assert.equal(waveMgr.add('dmu-p3-blackhole.lua', code.replace('local NEW_WAVE_GAP_MS = 30000', 'local NEW_WAVE_GAP_MS = 50')).ok, true);
+waveMgr.onLogLine('2|2026-09-17T15:20:00.0000000-04:00|10020C04|Minda Silva');
 waveMgr.onLogLine(APPLY_A);
 waveMgr.onLogLine(APPLY_B);
 await new Promise((resolve) => setTimeout(resolve, 90)); // outlast the shrunken wave gap
@@ -92,6 +105,7 @@ const CAST_B = '21|2026-09-14T21:22:52.8290000-04:00|4001694C|Kefka|BAE4|Ultima 
 const dual = new LuaManager(() => [1280, 720]);
 assert.equal(dual.add('dmu-p3-limit-cut.lua', limitCutCode).ok, true);
 assert.equal(dual.add('dmu-p3-blackhole.lua', code).ok, true);
+dual.onLogLine('2|2026-09-17T15:20:00.0000000-04:00|10020C04|Minda Silva'); // limit-cut ignores it
 dual.onLogLine(CAST_A);
 dual.onLogLine(CAST_B);
 dual.frame(1 / 60);
@@ -116,6 +130,7 @@ assert.ok(!scenes.some(({ scene }) => scene.some((op) => op.type === 'text' && (
 // --- idle auto-clear ------------------------------------------------------------
 const clearMgr = new LuaManager(() => [1280, 720]);
 assert.equal(clearMgr.add('dmu-p3-blackhole.lua', code.replace('local CLEAR_MS = 120000', 'local CLEAR_MS = 60')).ok, true);
+clearMgr.onLogLine('2|2026-09-17T15:20:00.0000000-04:00|10020C04|Minda Silva');
 clearMgr.onLogLine(APPLY_A);
 clearMgr.frame(1 / 60);
 assert.ok(bigLines(clearMgr).length > 0, 'shown while fresh');

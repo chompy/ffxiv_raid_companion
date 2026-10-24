@@ -36,6 +36,9 @@ function replay(mgr, file) {
 function freshMgr(src = code) {
   const m = new LuaManager(() => [1280, 720]);
   assert.equal(m.add('dmu-p5-celestriad.lua', src).ok, true, 'script should load');
+  // No fallback character exists: the app re-injects the persisted identity at boot,
+  // so tests do the same — "you" is Minda unless a test switches it via its own 02 line.
+  m.onLogLine('02|2026-10-02T16:39:59.0000000-04:00|10020C04|Minda Silva');
   return m;
 }
 
@@ -118,6 +121,19 @@ function testNoFalseTriggerWithoutCast() {
   assert.equal(bigWord(m).text, 'FIRE');
 }
 
+function testNoIdentityWarning() {
+  // No type-2 line and no app re-injection: there is no fallback character, so the
+  // tracker warns instead of guessing whose element to show.
+  const m = new LuaManager(() => [1280, 720]);
+  assert.equal(m.add('dmu-p5-celestriad.lua', code).ok, true);
+  m.onLogLine(cast);
+  m.onLogLine(land);
+  m.onLogLine(apply('10020C04', 'Minda Silva', 'B56'));
+  m.frame(1 / 60);
+  const ops = m.scenes()[0].scene.filter((o) => o.type === 'text');
+  assert.ok(ops.some((o) => o.text.startsWith('No character detected')), `warning without identity: ${JSON.stringify(ops.map((o) => o.text))}`);
+}
+
 function testRotationIgnored() {
   // A mid-mechanic rotation re-apply (different element, later timestamp) must not
   // overwrite the initial assignment — even for a player who was clean at first.
@@ -181,6 +197,7 @@ async function testTimeoutFallback() {
 
 testNoneByCount();
 testNoFalseTriggerWithoutCast();
+testNoIdentityWarning();
 testRotationIgnored();
 testCombatStartReset();
 await testTimeoutFallback();

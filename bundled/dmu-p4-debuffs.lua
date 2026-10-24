@@ -79,11 +79,13 @@ local C_FAKE   = "#ff8f8f"
 local C_WARN   = "#ffd27f"
 local C_DIMMED = "#6a6a80"
 
--- Identity defaults. A ChangePrimaryPlayer line (type 2: "2|ts|<charID>|<name>",
--- emitted by IINACT on zone change) overrides these while the log is streaming;
--- if no such line ever arrives we just track the default player below.
-local MY_NAME = "Minda Silva"
-local MY_ID   = "10086F30" -- character ids are per-shard; the 02 line overrides this
+-- Identity comes ONLY from a ChangePrimaryPlayer line (type 2: "2|ts|<charID>|<name>",
+-- emitted by IINACT on zone change and re-injected by the app at boot). There is no
+-- fallback character: without an identity line we cannot know who "you" are, so the
+-- display warns instead of guessing.
+local MY_NAME = nil
+local MY_ID   = nil -- character ids are per-shard; only a 02 line sets these
+local NO_CHARACTER_MSG = "No character detected - enter any zone once"
 
 -- Boss entity ids differ between sessions, so tells are matched by NAME.
 -- (Chaos's effect sub-entities share the name "Chaos".)
@@ -511,6 +513,15 @@ onFrame = function(_dt)
   end
 
   clearCanvas()
+
+  -- No identity line seen this session: warn instead of guessing a fallback character.
+  if MY_ID == nil then
+    local w, h = canvasWidth(), canvasHeight()
+    local size = math.floor(w * 0.94 / (#NO_CHARACTER_MSG * 0.62))
+    drawText(NO_CHARACTER_MSG, centerText(w / 2, NO_CHARACTER_MSG, size),
+      math.floor(h / 2 + size * 0.35), size, C_WARN)
+    return
+  end
 
   -- Nothing to show until a mechanic happens; once quiet for CLEAR_MS the whole
   -- round is considered resolved and clears out.
