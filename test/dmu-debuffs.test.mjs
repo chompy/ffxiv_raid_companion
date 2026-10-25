@@ -524,7 +524,7 @@ assert.equal(tableRows(clearMgr).length, 0, 'cleared after idle window elapses')
 // Once P4's last mechanic (Tsunami / thunder-blizzard AOE) resolves, the tracker
 // clears FINAL_HIDE_MS later so it doesn't overlap P5 trackers like Celestriad.
 const hideMgr = new LuaManager(() => [1280, 720]);
-assert.equal(hideMgr.add('dmu-p4-debuffs.lua', code.replace('local FINAL_HIDE_MS = 60000', 'local FINAL_HIDE_MS = 60')).ok, true);
+assert.equal(hideMgr.add('dmu-p4-debuffs.lua', code.replace('local FINAL_HIDE_MS = 120000', 'local FINAL_HIDE_MS = 60')).ok, true);
 hideMgr.onLogLine(IDENTITY);
 hideMgr.onLogLine(tellChaos('460'));
 hideMgr.onLogLine(applyToMe('15AC', 'Dynamic Fluid', 84)); // tsunami resolves REAL -> final mechanic done
@@ -537,7 +537,7 @@ assert.equal(tableRows(hideMgr).length, 0, 'cleared FINAL_HIDE_MS after tsunami 
 // The timer only arms on the FINAL mechanic: with just Inferno resolved (tsunami
 // still blank) the tracker must stay up past the same window.
 const notFinalMgr = new LuaManager(() => [1280, 720]);
-assert.equal(notFinalMgr.add('dmu-p4-debuffs.lua', code.replace('local FINAL_HIDE_MS = 60000', 'local FINAL_HIDE_MS = 60')).ok, true);
+assert.equal(notFinalMgr.add('dmu-p4-debuffs.lua', code.replace('local FINAL_HIDE_MS = 120000', 'local FINAL_HIDE_MS = 60')).ok, true);
 notFinalMgr.onLogLine(IDENTITY);
 notFinalMgr.onLogLine(tellChaos('460'));
 notFinalMgr.onLogLine(applyToMe('15AB', 'Entropy', 45)); // inferno only — tsunami unresolved

@@ -63,8 +63,8 @@ local CLEAR_MS = 120000
 -- resolved (tsunami reality known), keep the display up this long so the outcome can
 -- be read, then clear: the fight moves on to P5 and a lingering table would overlap
 -- other trackers (e.g. Celestriad). If tsunami never resolves (missed tell) the
--- CLEAR_MS idle window above is the fallback. Stopgap: raised from 15s — in real
--- pulls the display dropped before the AOE outcome had been read.
+-- CLEAR_MS idle window above is the fallback. Stopgap: raised to 2 minutes from
+-- 60s — in real pulls the display dropped before the AOE outcome had been read.
 local FINAL_HIDE_MS = 120000
 
 -- Shared visual language across the example scripts — keep these in sync.
