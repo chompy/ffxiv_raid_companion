@@ -65,7 +65,7 @@ local CLEAR_MS = 120000
 -- other trackers (e.g. Celestriad). If tsunami never resolves (missed tell) the
 -- CLEAR_MS idle window above is the fallback. Stopgap: raised from 15s — in real
 -- pulls the display dropped before the AOE outcome had been read.
-local FINAL_HIDE_MS = 60000
+local FINAL_HIDE_MS = 120000
 
 -- Shared visual language across the example scripts — keep these in sync.
 local C_TITLE  = "#ffffff"
